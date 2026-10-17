@@ -1,0 +1,33 @@
+{
+  "name": "abele-sync-sdk-workspace",
+  "private": true,
+  "type": "module",
+  "license": "GPL-3.0-only",
+  "workspaces": [
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "types": "tsc -b",
+    "test": "vitest run --maxWorkers=2 && node --test test/unit/core-pin.test.mjs",
+    "check:core-pin": "node scripts/check-core-pin.mjs",
+    "vendor:refresh": "node scripts/refresh-core.mjs",
+    "smoke": "node scripts/pack-smoke.mjs",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "@types/node": "22.20.1",
+    "prettier": "3.9.6",
+    "typescript": "5.9.3",
+    "vite": "8.3.1",
+    "vitest": "5.0.2"
+  },
+  "dependencies": {
+    "@abele/sync-core": "file:vendor/abele-sync-core-0.3.3.tgz",
+    "@abele/sync-node": "file:vendor/abele-sync-node-0.3.3.tgz",
+    "@abele/sync-protocol": "file:vendor/abele-sync-protocol-0.3.3.tgz"
+  }
+}
