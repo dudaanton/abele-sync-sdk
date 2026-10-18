@@ -5,6 +5,7 @@ import {
 } from "@abele/sync-protocol";
 import {
   SyncEngine,
+  AccessClient,
   V2EngineClient,
   selectiveDefaults,
   type FileSystem,
@@ -20,6 +21,19 @@ export { ReplicaConfigurationError } from "./node-replica.js";
 import { conflictEvents, type ConflictEvent } from "./conflicts.js";
 export type { ConflictEvent } from "./conflicts.js";
 export type { Replica, ReplicaEntry } from "./replica.js";
+import {
+  createHistory,
+  forgetState,
+  HistoryError,
+  historyOperation,
+  type HistoryApi,
+} from "./history.js";
+export { HistoryError } from "./history.js";
+export type {
+  HistoryApi,
+  HistoryErrorCode,
+  DeleteDecisions,
+} from "./history.js";
 
 export class InvalidKey extends Error {
   readonly code = "INVALID_KEY";
@@ -55,7 +69,7 @@ export type ConnectOptions = Adapters & {
   backoffMs?: [number, number];
   fallbackMs?: number;
 };
-export interface SyncClient {
+export interface SyncClient extends HistoryApi {
   readonly replica: Replica;
   readonly scope: V2AccessToken["scope"];
   readonly status: EngineStatus;
@@ -70,6 +84,8 @@ export interface SyncClient {
     listener: (value: ClientEvents[K]) => void,
   ): () => void;
   close(): Promise<void>;
+  disconnect(): Promise<void>;
+  revoke(): Promise<void>;
 }
 export class SyncError extends Error {
   constructor(readonly code: "offline" | "unauthorized" | "other") {
@@ -90,6 +106,7 @@ export interface ClientEvents {
   synced: SyncReport;
   error: SyncError;
   revoked: SyncError;
+  heldDeletes: Awaited<ReturnType<HistoryApi["heldDeletes"]>>;
 }
 export async function open(options: ConnectOptions): Promise<SyncClient> {
   const token = parseKey(options.key);
@@ -134,6 +151,7 @@ export async function open(options: ConnectOptions): Promise<SyncClient> {
   let nodeOptions: Partial<EngineOptions> = {};
   let files = options.files;
   let state = options.state;
+  let forget = () => forgetState(state!);
   if (options.dir !== undefined) {
     const replica = await openReplica({
       dir: options.dir,
@@ -143,6 +161,8 @@ export async function open(options: ConnectOptions): Promise<SyncClient> {
       defer: options.defer,
     });
     release = () => replica.close();
+    const { forgetNodeReplica } = await import("./historyNode.js");
+    forget = async () => forgetNodeReplica(replica);
     files = replica.fs;
     state = replica.state;
     nodeOptions = {
@@ -159,6 +179,7 @@ export async function open(options: ConnectOptions): Promise<SyncClient> {
   }
   const listeners = new Map<keyof ClientEvents, Set<(value: never) => void>>();
   let revoked = false;
+  let selfRevoked = false;
   const emit = <K extends keyof ClientEvents>(
     event: K,
     value: ClientEvents[K],
@@ -213,11 +234,73 @@ export async function open(options: ConnectOptions): Promise<SyncClient> {
     const assertOpen = () => {
       if (closing) throw new Error("Sync client is closed");
     };
-    const unstatus = engine.onStatus((status) =>
-      emit("status", safeStatus(status)),
-    );
+    const history = createHistory({
+      engine,
+      wire: (nodeOptions.client ?? wire) as V2EngineClient,
+      state: state!,
+      assertOpen() {
+        if (closing) throw new HistoryError("closed");
+        if (revoked) throw new HistoryError("unauthorized");
+      },
+    });
+    let heldSignature = "";
+    const unstatus = engine.onStatus((status) => {
+      emit("status", safeStatus(status));
+      if (status.heldDeletes)
+        void engine
+          .heldDeletes()
+          .then((held) => {
+            const signature = JSON.stringify(held);
+            if (!closing && signature !== heldSignature) {
+              heldSignature = signature;
+              emit("heldDeletes", held);
+            }
+          })
+          .catch(() => {});
+      else heldSignature = "";
+    });
+    const close = () => {
+      closing ??= (async () => {
+        try {
+          await engine.stop();
+        } finally {
+          listeners.clear();
+          unstatus();
+          release();
+        }
+      })();
+      return closing;
+    };
     return {
       replica: createReplica(files!, state!, assertOpen),
+      ...history,
+      disconnect() {
+        if (closing) return closing;
+        closing = historyOperation(async () => {
+          try {
+            await engine.stop();
+            await forget();
+          } finally {
+            listeners.clear();
+            unstatus();
+            release();
+          }
+        });
+        return closing;
+      },
+      revoke() {
+        return historyOperation(async () => {
+          assertOpen();
+          if (revoked) throw new HistoryError("unauthorized");
+          await engine.stop();
+          await AccessClient.fromToken(options.key, transport).revoke(
+            info.token_id,
+          );
+          revoked = true;
+          selfRevoked = true;
+          emit("revoked", new SyncError("unauthorized"));
+        });
+      },
       scope: info.scope,
       readOnly: info.read_only ?? false,
       get status() {
@@ -225,6 +308,7 @@ export async function open(options: ConnectOptions): Promise<SyncClient> {
       },
       start() {
         assertOpen();
+        if (selfRevoked) throw new SyncError("unauthorized");
         if (stopping) throw new Error("Sync client is stopping");
         engine.start();
       },
@@ -240,6 +324,7 @@ export async function open(options: ConnectOptions): Promise<SyncClient> {
       },
       resume() {
         assertOpen();
+        if (selfRevoked) throw new SyncError("unauthorized");
         if (stopping) throw new Error("Sync client is stopping");
         revoked = false;
         engine.resume();
@@ -269,18 +354,7 @@ export async function open(options: ConnectOptions): Promise<SyncClient> {
           group.delete(listener as (value: never) => void);
         };
       },
-      close() {
-        closing ??= (async () => {
-          try {
-            await engine.stop();
-          } finally {
-            listeners.clear();
-            unstatus();
-            release();
-          }
-        })();
-        return closing;
-      },
+      close,
     };
   } catch (error) {
     release();

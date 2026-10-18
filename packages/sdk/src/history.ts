@@ -112,15 +112,24 @@ export function createHistory(options: {
   };
   return {
     history: (path, query) =>
-      run(async () => wire.versions(await resolve(path), query)),
+      run(() =>
+        engine.runExclusive(async () =>
+          wire.versions(await resolve(path), query),
+        ),
+      ),
     restore: (path, version) =>
       run(async () =>
-        accepted(await engine.restore(await resolve(path), version)),
+        accepted(
+          await engine.restore(
+            await engine.runExclusive(() => resolve(path)),
+            version,
+          ),
+        ),
       ),
-    trash: () => run(() => wire.trash()),
+    trash: () => run(() => engine.runExclusive(() => wire.trash())),
     restoreDeleted: (pathOrId) =>
       run(async () => {
-        const items = await wire.trash();
+        const items = await engine.runExclusive(() => wire.trash());
         const item =
           items.find((item) => item.file_id === pathOrId) ??
           items.find((item) => item.path === pathOrId.normalize("NFC"));
