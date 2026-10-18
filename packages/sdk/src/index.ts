@@ -14,6 +14,8 @@ import {
   type EngineStatus,
   type AppliedChange,
 } from "@abele/sync-core";
+import { createReplica, type Replica } from "./replica.js";
+export type { Replica, ReplicaEntry } from "./replica.js";
 import { openReplica } from "./node-replica.js";
 export { ReplicaConfigurationError } from "./node-replica.js";
 
@@ -52,6 +54,7 @@ export type ConnectOptions = Adapters & {
   fallbackMs?: number;
 };
 export interface SyncClient {
+  readonly replica: Replica;
   readonly scope: V2AccessToken["scope"];
   readonly status: EngineStatus;
   readonly readOnly: boolean;
@@ -207,6 +210,7 @@ export async function open(options: ConnectOptions): Promise<SyncClient> {
       emit("status", safeStatus(status)),
     );
     return {
+      replica: createReplica(files!, state!, assertOpen),
       scope: info.scope,
       readOnly: info.read_only ?? false,
       get status() {

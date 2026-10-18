@@ -222,10 +222,12 @@ it("opens Memory adapters and closes idempotently", async () => {
   expect(client.scope).toEqual(token.scope);
   expect(client.readOnly).toBe(false);
   expect(client.status.state).toBe("idle");
+  expect(await client.replica.list()).toEqual([]);
   expect(wire.fetch).toHaveBeenCalledTimes(2);
   await client.close();
   await client.close();
   await expect(client.syncOnce()).rejects.toThrow("closed");
+  await expect(client.replica.list()).rejects.toThrow("closed");
 });
 it.each([
   transport(connection, 1),

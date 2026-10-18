@@ -156,7 +156,24 @@ it("two Node clients converge on one folder", async () => {
     await mkdir(second);
     await writeFile(join(first, "Example.md"), "# Example\n");
     clients.push(await open({ key: server.keys[0], dir: first }));
-    clients.push(await open({ key: server.keys[1], dir: second }));
+    const stateDir = join(root, "external-state");
+    let downloads = 0;
+    const countedFetch: typeof fetch = (input, init) => {
+      if (
+        new URL(String(input)).pathname.endsWith("/content") &&
+        (!init?.method || init.method === "GET")
+      )
+        downloads++;
+      return fetch(input, init);
+    };
+    clients.push(
+      await open({
+        key: server.keys[1],
+        dir: second,
+        stateDir,
+        transport: { fetch: countedFetch },
+      }),
+    );
     const changes: unknown[] = [];
     clients[1].on("change", (change) => changes.push(change));
     await clients[0].syncOnce();
@@ -164,6 +181,26 @@ it("two Node clients converge on one folder", async () => {
     expect(await readFile(join(second, "Example.md"), "utf8")).toBe(
       "# Example\n",
     );
+    expect(await clients[1].replica.readText("Example.md")).toBe("# Example\n");
+    expect(await clients[1].replica.list()).toEqual([
+      expect.objectContaining({
+        path: "Example.md",
+        size: 10,
+        fileId: expect.any(String),
+      }),
+    ]);
+    expect(downloads).toBeGreaterThan(0);
+    await clients[1].close();
+    const beforeRestart = downloads;
+    clients[1] = await open({
+      key: server.keys[1],
+      dir: second,
+      stateDir,
+      transport: { fetch: countedFetch },
+    });
+    await clients[1].syncOnce();
+    expect(downloads).toBe(beforeRestart);
+    expect(await clients[1].replica.readText("Example.md")).toBe("# Example\n");
     expect(changes).toContainEqual(
       expect.objectContaining({
         path: "Example.md",
