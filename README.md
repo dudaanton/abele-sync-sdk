@@ -93,6 +93,41 @@ this event can repeat on replay and is not a complete conflict history across
 multiple push batches.
 The folder mirror's `--watch` mode logs status and changes until Ctrl-C.
 
+Use `history(path)` to list server versions, and `restore(path, versionId)` to
+restore one through the engine's serialized restore operation. History accepts
+an optional `{ limit, before }` query for older versions. `trash()` lists deleted
+files; `restoreDeleted(pathOrId)` restores a listed path or file id. Restore
+returns the core commit result; a server rejection throws `HistoryError` instead
+of returning its raw error message. Sync afterwards to receive the restored file.
+
+`heldDeletes()` lists the mass-delete guard's pending deletions. The
+`heldDeletes` event delivers a changed nonempty list. Decide only the file ids
+shown to the user:
+
+```ts
+const held = await client.heldDeletes();
+await client.decideDeletes({
+  kind: "confirm", // or "restore" to bring the missing local files back
+  fileIds: held.map((file) => file.fileId),
+});
+```
+
+Decisions start a sync unless the engine is paused or authorization has halted.
+`deferred()` lists remote changes staged by the optional `defer(path)` predicate.
+`applyDeferred(versionIds?)` applies them through the engine; pass the versions
+shown to avoid applying unseen updates. Omitting the selection applies all staged
+changes. These are generic data deferrals with no code approval policy.
+
+`disconnect()` stops and closes the client, removes its local sync state and
+connection credentials, and keeps user files. Custom adapters must enumerate
+metadata via `metadataKeys` when they implement metadata storage; otherwise this
+operation fails with `HistoryError("unsupported")`. The caller still owns its
+adapters. The Node state directory remains empty after releasing its lock.
+`revoke()` revokes this connection's own token on the server and stops syncing;
+it keeps local state. A self-revoked client cannot start or resume. Disconnect it
+separately to forget the device locally. History operations throw sanitized
+`HistoryError` instances with a stable `code` and no raw transport cause.
+
 Run the disposable Docker integration tests with `npm run test:server`.
 See `test/server/README.md` and `examples/folder-mirror/README.md` for details.
 
