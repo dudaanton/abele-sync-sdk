@@ -17,6 +17,8 @@ import {
 } from "@abele/sync-core";
 import { createReplica, type Replica } from "./replica.js";
 import { openReplica } from "./node-replica.js";
+import { ReplicaConfigurationError } from "./node-replica.js";
+import { safeError, safeFetch } from "./errors.js";
 export { ReplicaConfigurationError } from "./node-replica.js";
 import { conflictEvents, type ConflictEvent } from "./conflicts.js";
 export type { ConflictEvent } from "./conflicts.js";
@@ -116,7 +118,22 @@ export async function open(options: ConnectOptions): Promise<SyncClient> {
     (options.dir !== undefined && options.state !== undefined)
   )
     throw new TypeError("Provide either dir or files and state");
-  const fetcher = options.transport?.fetch ?? globalThis.fetch;
+  try {
+    return await openClient(options, token);
+  } catch (error) {
+    if (error instanceof InvalidKey) throw new InvalidKey();
+    if (error instanceof IncompatibleServer)
+      throw new IncompatibleServer("Incompatible sync server");
+    if (error instanceof ReplicaConfigurationError)
+      throw new ReplicaConfigurationError();
+    throw safeError(error);
+  }
+}
+async function openClient(
+  options: ConnectOptions,
+  token: V2AccessToken,
+): Promise<SyncClient> {
+  const fetcher = safeFetch(options.transport?.fetch ?? globalThis.fetch);
   const response = await fetcher(
     token.address.replace(/\/$/, "") + "/capabilities",
   );

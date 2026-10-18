@@ -1,5 +1,8 @@
 import { expect, it, vi } from "vitest";
 import { setTimeout as realDelay } from "node:timers/promises";
+import { inspect } from "node:util";
+import { AbeleError } from "@abele/sync-protocol";
+import { HttpError } from "@abele/sync-core";
 import { MemoryFileSystem, MemoryStateStore } from "@abele/sync-core";
 import { open, IncompatibleServer } from "../../packages/sdk/src/index.js";
 import { fakeServer } from "./server.js";
@@ -31,8 +34,18 @@ async function fixture() {
     }
   }
   const files = new MemoryFileSystem();
+  const logger = vi.fn();
   const client = await open({
-    transport: { WebSocket: Socket },
+    logger,
+    transport: {
+      WebSocket: Socket,
+      // Avoid pooled keep-alive sockets whose internal clocks are not faked.
+      fetch: (url, init) =>
+        fetch(url, {
+          ...init,
+          headers: { ...init?.headers, connection: "close" },
+        }),
+    },
     key: server.key,
     files,
     state: new MemoryStateStore(),
@@ -44,6 +57,7 @@ async function fixture() {
     server,
     client,
     files,
+    logger,
     get closed() {
       return closed;
     },
@@ -87,26 +101,80 @@ it.each([1, 3])("rejects capabilities protocol %s", async (protocol) => {
     await server.close();
   }
 });
-it.fails(
-  "BUG: opening errors never expose keys or credentialed URLs",
-  async () => {
+it("BUG: opening errors never expose keys or credentialed URLs", async () => {
+  const server = await fakeServer();
+  server.control.status = 401;
+  server.control.message = server.key + " http://user:password@example.test";
+  try {
+    const error = await open({
+      key: server.key,
+      files: new MemoryFileSystem(),
+      state: new MemoryStateStore(),
+    }).catch((error: unknown) => error);
+    expect(error).toBeInstanceOf(Error);
+    expect(String(error)).not.toContain(server.key);
+    expect(String(error)).not.toContain("password");
+    expect(error).toBeInstanceOf(AbeleError);
+    expect(error).toMatchObject({
+      code: "unauthorized",
+      status: 401,
+      details: {},
+    });
+  } finally {
+    await server.close();
+  }
+});
+it.each(["capabilities", "connection"])(
+  "normalizes untrusted %s errors without retaining causes or details",
+  async (stage) => {
     const server = await fakeServer();
-    server.control.status = 401;
-    server.control.message = server.key + " http://user:password@example.test";
+    const secret = "invented-sensitive-value http://user:password@example.test";
+    const hostile = new AbeleError("forbidden", secret, { credential: secret });
     try {
       const error = await open({
         key: server.key,
         files: new MemoryFileSystem(),
         state: new MemoryStateStore(),
+        transport: {
+          fetch: async (url, init) => {
+            if (stage === "capabilities") throw hostile;
+            if (String(url).endsWith("/v2/connection"))
+              return Response.json(hostile.toBody(), { status: 403 });
+            return fetch(url, init);
+          },
+        },
       }).catch((error: unknown) => error);
-      expect(error).toBeInstanceOf(Error);
-      expect(String(error)).not.toContain(server.key);
-      expect(String(error)).not.toContain("password");
+      expect(error).toBeInstanceOf(AbeleError);
+      expect(error).toMatchObject({
+        code: "forbidden",
+        status: 403,
+        details: {},
+      });
+      expect(inspect(error, { showHidden: true })).not.toContain(secret);
     } finally {
       await server.close();
     }
   },
 );
+it("preserves transient HTTP status when opening", async () => {
+  const server = await fakeServer();
+  server.control.status = 503;
+  server.control.message = "invented-sensitive-value";
+  try {
+    const error = await open({
+      key: server.key,
+      files: new MemoryFileSystem(),
+      state: new MemoryStateStore(),
+    }).catch((error: unknown) => error);
+    expect(error).toBeInstanceOf(HttpError);
+    expect(error).toMatchObject({ code: "offline", status: 503 });
+    expect(inspect(error, { showHidden: true })).not.toContain(
+      server.control.message,
+    );
+  } finally {
+    await server.close();
+  }
+});
 it("401 emits revoked once and waits for resume without exposing secrets", async () => {
   const f = await fixture();
   const revoked = vi.fn(),
@@ -124,7 +192,10 @@ it("401 emits revoked once and waits for resume without exposing secrets", async
     await expect(f.client.syncOnce()).rejects.toThrow();
     expect(f.server.requests).toHaveLength(count);
     expect(revoked).toHaveBeenCalledTimes(1);
-    const exposed = JSON.stringify([errors.mock.calls, f.client.status]);
+    const exposed = inspect(
+      [errors.mock.calls, f.client.status, f.logger.mock.calls],
+      { showHidden: true },
+    );
     expect(exposed).not.toContain(f.server.key);
     expect(exposed).not.toContain("password");
     f.server.control.status = 200;
@@ -135,38 +206,35 @@ it("401 emits revoked once and waits for resume without exposing secrets", async
     await f.close();
   }
 });
-it.fails(
-  "BUG: 5xx backoff increases, caps, and resets after success",
-  async () => {
-    const f = await fixture();
-    const errors = vi.fn();
-    f.client.on("error", errors);
-    try {
-      f.server.control.status = 503;
-      f.client.start();
-      await until(() => errors.mock.calls.length === 1);
-      expect(f.client.status.state).toBe("offline");
-      for (const [i, delay] of [10, 20, 40, 40].entries()) {
-        await vi.advanceTimersByTimeAsync(delay - 1);
-        expect(errors).toHaveBeenCalledTimes(i + 1);
-        await vi.advanceTimersByTimeAsync(1);
-        await until(() => errors.mock.calls.length === i + 2);
-      }
-      f.server.control.status = 200;
-      await vi.advanceTimersByTimeAsync(40);
-      await until(() => f.client.status.state === "idle");
-      f.server.control.status = 503;
-      await expect(f.client.syncOnce()).rejects.toThrow();
-      const count = errors.mock.calls.length;
-      await vi.advanceTimersByTimeAsync(9);
-      expect(errors).toHaveBeenCalledTimes(count);
+it("BUG: 5xx backoff increases, caps, and resets after success", async () => {
+  const f = await fixture();
+  const errors = vi.fn();
+  f.client.on("error", errors);
+  try {
+    f.server.control.status = 503;
+    f.client.start();
+    await until(() => errors.mock.calls.length === 1);
+    expect(f.client.status.state).toBe("offline");
+    for (const [i, delay] of [10, 20, 40, 40].entries()) {
+      await vi.advanceTimersByTimeAsync(delay - 1);
+      expect(errors).toHaveBeenCalledTimes(i + 1);
       await vi.advanceTimersByTimeAsync(1);
-      await until(() => errors.mock.calls.length === count + 1);
-    } finally {
-      await f.close();
+      await until(() => errors.mock.calls.length === i + 2);
     }
-  },
-);
+    f.server.control.status = 200;
+    await vi.advanceTimersByTimeAsync(40);
+    await until(() => f.client.status.state === "idle");
+    f.server.control.status = 503;
+    await expect(io(f.client.syncOnce())).rejects.toThrow();
+    const count = errors.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(9);
+    expect(errors).toHaveBeenCalledTimes(count);
+    await vi.advanceTimersByTimeAsync(1);
+    await until(() => errors.mock.calls.length === count + 1);
+  } finally {
+    await f.close();
+  }
+});
 it("reconnect catches missed cursors and duplicate or older frames are idempotent", async () => {
   const f = await fixture();
   const synced = vi.fn();
