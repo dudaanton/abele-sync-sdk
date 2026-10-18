@@ -2,7 +2,7 @@
 
 TypeScript ESM packages for building applications on abele-sync. Requires Node.js 22 or newer.
 
-- `@abele/sync-sdk`: connection key parsing and one-shot folder synchronization.
+- `@abele/sync-sdk`: connection key parsing, one-shot and continuous synchronization.
 - `@abele/notes`: portable notes model (scaffold; API coming later).
 
 ## Development
@@ -52,12 +52,29 @@ try {
 Custom hosts can supply `files` and `state` implementing the core `FileSystem`
 and `StateStore` interfaces, plus `transport.fetch` and `transport.WebSocket`.
 Those adapters stay owned by the caller. `clock`, `logger`, `deleteGuard`, `defer`,
-`backoffMs`, and `fallbackMs` pass through to the engine. Changes come directly
+`backoffMs`, and `fallbackMs` configure the engine. Logger notifications and
+error messages are generic to avoid exposing transport credentials. Changes come directly
 from its durable apply hook; crash replay can repeat notifications and delivery
 is not a durable queue. `readOnly` reflects the server connection permission.
 The current Node opener owns its `.abele-sync` state layout; separate `stateDir`
 is explicitly rejected until the core supports it. Client-side read-only policy
-and continuous lifecycle controls are not implemented yet.
+is not implemented yet.
+
+Use `client.start()` for continuous sync over the core event socket, local watcher
+and fallback timer. `pause()` suspends automatic triggers; `resume()` clears the
+pause or authorization halt and syncs immediately. `syncOnce()` can run while
+paused, but a revoked connection requires `resume()` first. `stop()` awaits active
+work and releases watches, sockets and timers; await it before `start()` again.
+`close()` also releases the Node replica and is idempotent. A closed client cannot
+be restarted. Pauses and authorization halts survive stop/start.
+
+`on("status", listener)` receives status objects whose `state` is
+`idle | syncing | offline | paused | error`. `on("synced", listener)` receives each
+successful report. `error` and `revoked` receive a `SyncError` with code
+`offline | unauthorized | other` and no raw transport cause. Revocation emits once
+per authorization halt and cancels automatic retries until `resume()`.
+Each subscription returns an unsubscribe function; listener exceptions are isolated.
+The folder mirror's `--watch` mode logs status and changes until Ctrl-C.
 
 Run the disposable Docker integration tests with `npm run test:server`.
 See `test/server/README.md` and `examples/folder-mirror/README.md` for details.

@@ -4,6 +4,7 @@ Build the workspace with `npm run build`, then run:
 
 ```sh
 node examples/folder-mirror --key '<key>' --dir ./mirror --once
+node examples/folder-mirror --key '<key>' --dir ./mirror --watch
 ```
 
 Use a folder connection key from a compatible protocol 2 server. The directory
@@ -14,3 +15,6 @@ credentials and the process lock. Do not share or synchronize that directory.
 
 `--help` prints usage without connecting. A missing argument or failed sync exits
 with status 1. Files still being written may need a later invocation.
+
+`--watch` keeps syncing local edits and server events, prints status and applied
+changes, and closes the replica on Ctrl-C or SIGTERM. Choose exactly one mode.

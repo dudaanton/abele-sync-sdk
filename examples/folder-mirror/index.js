@@ -1,13 +1,14 @@
 import { parseArgs } from "node:util";
 
 const usage =
-  "Usage: node examples/folder-mirror --key <key> --dir <dir> --once";
+  "Usage: node examples/folder-mirror --key <key> --dir <dir> (--once | --watch)";
 async function main() {
   const { values } = parseArgs({
     options: {
       key: { type: "string" },
       dir: { type: "string" },
       once: { type: "boolean" },
+      watch: { type: "boolean" },
       help: { type: "boolean" },
     },
   });
@@ -15,11 +16,32 @@ async function main() {
     console.log(usage);
     return;
   }
-  if (!values.key || !values.dir || !values.once) throw new Error(usage);
+  if (
+    !values.key ||
+    !values.dir ||
+    Boolean(values.once) === Boolean(values.watch)
+  )
+    throw new Error(usage);
   const { open } = await import("@abele/sync-sdk");
   const client = await open({ key: values.key, dir: values.dir });
   try {
-    console.log(JSON.stringify(await client.syncOnce(), null, 2));
+    if (values.once)
+      console.log(JSON.stringify(await client.syncOnce(), null, 2));
+    else {
+      client.on("status", (status) => console.log("status:", status.state));
+      client.on("change", (change) => console.log(JSON.stringify(change)));
+      client.on("error", (error) => console.error("Sync failed:", error.code));
+      await new Promise((resolve) => {
+        const done = () => {
+          process.off("SIGINT", done);
+          process.off("SIGTERM", done);
+          resolve();
+        };
+        process.once("SIGINT", done);
+        process.once("SIGTERM", done);
+        client.start();
+      });
+    }
   } finally {
     await client.close();
   }
