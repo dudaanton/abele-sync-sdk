@@ -7,40 +7,87 @@ import {
   mkdtemp,
   readFile,
   readdir,
+  realpath,
   rm,
   writeFile,
 } from "node:fs/promises";
 import { resolve, join } from "node:path";
+import { readConfig, SqliteStateStore, stateDbFile } from "@abele/sync-node";
 
-it("disconnects a Node replica, keeping local files and removing credentials and state", async () => {
-  const server = await startServer();
-  let root: string | undefined;
-  let client: Awaited<ReturnType<typeof open>> | undefined;
-  try {
-    await mkdir(resolve(".cache"), { recursive: true });
-    root = await mkdtemp(resolve(".cache/disconnect-"));
-    await writeFile(join(root, "Example.md"), "kept\n");
-    client = await open({ key: server.keys[0], dir: root });
-    await client.syncOnce();
-    await client.disconnect();
-    expect(await readFile(join(root, "Example.md"), "utf8")).toBe("kept\n");
-    expect(await readdir(join(root, ".abele-sync"))).toEqual([]);
-    await expect(client.trash()).rejects.toMatchObject({ code: "closed" });
-    await client.close();
-    client = await open({ key: server.keys[0], dir: root });
-    await client.syncOnce();
-  } finally {
+it.each([false, true])(
+  "disconnects a Node replica, keeping files and forgetting state (external=%s)",
+  async (external) => {
+    const server = await startServer();
+    let root: string | undefined;
+    let client: Awaited<ReturnType<typeof open>> | undefined;
     try {
-      await client?.close();
+      await mkdir(resolve(".cache"), { recursive: true });
+      root = await mkdtemp(resolve(".cache/disconnect-"));
+      const dir = join(root, "files");
+      const stateDir = external ? join(root, "state") : undefined;
+      await mkdir(dir);
+      await writeFile(join(dir, "Example.md"), "kept\n");
+      client = await open({ key: server.keys[0], dir, stateDir });
+      await client.syncOnce();
+      const previous = SqliteStateStore.openReadOnlySnapshot(
+        stateDbFile(dir, stateDir),
+      );
+      try {
+        expect(await previous.getCursor()).toBeGreaterThan(0);
+      } finally {
+        previous.close();
+      }
+      await client.disconnect();
+      expect(await readFile(join(dir, "Example.md"), "utf8")).toBe("kept\n");
+      expect(await readdir(join(dir, ".abele-sync"))).toEqual([]);
+      if (stateDir) expect(await readdir(stateDir)).toEqual([]);
+      expect(readConfig(dir, stateDir)).toBeNull();
+      await expect(client.trash()).rejects.toMatchObject({ code: "closed" });
+      await client.close();
+      // A different key proves no saved credentials survive the disconnect.
+      client = await open({ key: server.keys[1], dir, stateDir });
+      const fresh = SqliteStateStore.openReadOnlySnapshot(
+        stateDbFile(dir, stateDir),
+      );
+      try {
+        expect(await fresh.getCursor()).toBe(0);
+      } finally {
+        fresh.close();
+      }
+      await client.syncOnce();
+      if (stateDir) {
+        await client.disconnect();
+        const otherDir = join(root, "other-files");
+        await mkdir(otherDir);
+        // The old node:bound-dir record must not prevent this new binding.
+        client = await open({ key: server.keys[0], dir: otherDir, stateDir });
+        const rebound = SqliteStateStore.openReadOnlySnapshot(
+          stateDbFile(otherDir, stateDir),
+        );
+        try {
+          expect(await rebound.getCursor()).toBe(0);
+          expect(rebound.getMeta("node:bound-dir")).toBe(
+            await realpath(otherDir),
+          );
+        } finally {
+          rebound.close();
+        }
+        expect(await readFile(join(dir, "Example.md"), "utf8")).toBe("kept\n");
+      }
     } finally {
       try {
-        if (root) await rm(root, { recursive: true, force: true });
+        await client?.close();
       } finally {
-        await server.close();
+        try {
+          if (root) await rm(root, { recursive: true, force: true });
+        } finally {
+          await server.close();
+        }
       }
     }
-  }
-}, 180_000);
+  },
+  180_000,
+);
 
 it("restores an earlier version and a deleted file", async () => {
   const server = await startServer();

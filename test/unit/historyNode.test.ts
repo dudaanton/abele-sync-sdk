@@ -10,35 +10,57 @@ import {
 import { join, resolve } from "node:path";
 import { forgetNodeReplica } from "../../packages/sdk/src/historyNode.js";
 
-it("retires Node state while preserving the lock inode and user files", () => {
-  mkdirSync(resolve(".cache"), { recursive: true });
-  const root = mkdtempSync(resolve(".cache/forget-"));
-  try {
-    const folder = join(root, ".abele-sync");
-    mkdirSync(folder);
-    writeFileSync(join(root, "Example.md"), "kept");
-    for (const name of [
-      "lock",
-      "config.json",
-      "state.db",
-      "state.db-wal",
-      "state.db-shm",
-    ])
-      writeFileSync(join(folder, name), "state");
-    const closed = vi.fn(() =>
-      expect(readFileSync(join(folder, "lock"), "utf8")).toBe("state"),
-    );
-    const owner = vi.fn();
-    forgetNodeReplica({
-      dir: root,
-      state: { close: closed },
-      fence: { assertOwner: owner, close: vi.fn() },
-    } as never);
-    expect(owner).toHaveBeenCalledOnce();
-    expect(closed).toHaveBeenCalledOnce();
-    expect(readdirSync(folder)).toEqual(["lock"]);
-    expect(readFileSync(join(root, "Example.md"), "utf8")).toBe("kept");
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
+it.each([false, true])(
+  "retires Node state while preserving locks and user files (external=%s)",
+  (external) => {
+    mkdirSync(resolve(".cache"), { recursive: true });
+    const root = mkdtempSync(resolve(".cache/forget-"));
+    try {
+      const folder = join(root, ".abele-sync");
+      const stateDir = external ? `${root}-state` : undefined;
+      const durable = stateDir ?? folder;
+      mkdirSync(folder);
+      if (stateDir) mkdirSync(stateDir);
+      writeFileSync(join(root, "Example.md"), "kept");
+      for (const name of [
+        "lock",
+        "config.json",
+        "state.db",
+        "state.db-wal",
+        "state.db-shm",
+      ])
+        writeFileSync(join(durable, name), "state");
+      mkdirSync(join(durable, "lock.mutation"));
+      mkdirSync(join(durable, "recovery"));
+      writeFileSync(join(durable, "recovery", "intent"), "state");
+      if (external) {
+        writeFileSync(join(folder, "lock"), "local lock");
+        mkdirSync(join(folder, "stages"));
+        writeFileSync(join(folder, "stages", "pending"), "temporary bytes");
+        writeFileSync(`${root}-sentinel`, "outside");
+      }
+      const closed = vi.fn(() =>
+        expect(readFileSync(join(durable, "lock"), "utf8")).toBe("state"),
+      );
+      const owner = vi.fn();
+      forgetNodeReplica({
+        dir: root,
+        stateDir,
+        state: { close: closed },
+        fence: { assertOwner: owner, close: vi.fn() },
+      } as never);
+      expect(owner).toHaveBeenCalledOnce();
+      expect(closed).toHaveBeenCalledOnce();
+      expect(readdirSync(durable).sort()).toEqual(["lock", "lock.mutation"]);
+      if (external) {
+        expect(readdirSync(folder)).toEqual(["lock"]);
+        expect(readFileSync(`${root}-sentinel`, "utf8")).toBe("outside");
+      }
+      expect(readFileSync(join(root, "Example.md"), "utf8")).toBe("kept");
+    } finally {
+      rmSync(`${root}-state`, { recursive: true, force: true });
+      rmSync(`${root}-sentinel`, { force: true });
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
