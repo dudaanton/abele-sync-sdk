@@ -14,6 +14,8 @@ import {
   type EngineStatus,
   type AppliedChange,
 } from "@abele/sync-core";
+import { openReplica } from "./node-replica.js";
+export { ReplicaConfigurationError } from "./node-replica.js";
 
 export class InvalidKey extends Error {
   readonly code = "INVALID_KEY";
@@ -91,11 +93,6 @@ export async function open(options: ConnectOptions): Promise<SyncClient> {
     (options.dir !== undefined && options.state !== undefined)
   )
     throw new TypeError("Provide either dir or files and state");
-  // The upstream Node replica owns its state layout and lock protocol.
-  if (options.stateDir !== undefined)
-    throw new TypeError(
-      "Separate stateDir requires upstream openNodeReplica support",
-    );
   const fetcher = options.transport?.fetch ?? globalThis.fetch;
   const response = await fetcher(
     token.address.replace(/\/$/, "") + "/capabilities",
@@ -132,9 +129,9 @@ export async function open(options: ConnectOptions): Promise<SyncClient> {
   let files = options.files;
   let state = options.state;
   if (options.dir !== undefined) {
-    const { openNodeReplica } = await import("@abele/sync-node");
-    const replica = await openNodeReplica({
+    const replica = await openReplica({
       dir: options.dir,
+      stateDir: options.stateDir,
       key: options.key,
       ...transport,
       defer: options.defer,

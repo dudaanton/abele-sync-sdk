@@ -1,4 +1,6 @@
 import { expect, it, vi } from "vitest";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { resolve, join } from "node:path";
 import { MemoryFileSystem, MemoryStateStore } from "@abele/sync-core";
 import { encodeAccessToken } from "@abele/sync-protocol";
 import {
@@ -6,6 +8,7 @@ import {
   open,
   InvalidKey,
   IncompatibleServer,
+  ReplicaConfigurationError,
 } from "../../packages/sdk/src/index.js";
 const token = {
   v: 1 as const,
@@ -288,15 +291,25 @@ it("reports server read-only access", async () => {
   expect(client.readOnly).toBe(true);
   await client.close();
 });
-it.fails(
-  "BUG: upstream Node opener cannot use a separate stateDir",
-  async () => {
-    const client = await open({
-      key,
-      dir: ".cache/replica",
-      stateDir: ".cache/state",
-      transport: transport(),
-    });
+it("opens a Node replica with a separate stateDir", async () => {
+  await mkdir(".cache", { recursive: true });
+  const root = await mkdtemp(resolve(".cache/stateDir-"));
+  const dir = join(root, "replica"),
+    stateDir = join(root, "state");
+  try {
+    const client = await open({ key, dir, stateDir, transport: transport() });
     await client.close();
-  },
-);
+    const reopened = await open({ key, dir, stateDir, transport: transport() });
+    await reopened.close();
+    await expect(
+      open({
+        key,
+        dir: join(root, "second"),
+        stateDir,
+        transport: transport(),
+      }),
+    ).rejects.toBeInstanceOf(ReplicaConfigurationError);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
