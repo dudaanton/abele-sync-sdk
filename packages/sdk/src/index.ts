@@ -54,8 +54,34 @@ export interface SyncClient {
   readonly status: EngineStatus;
   readonly readOnly: boolean;
   syncOnce(): Promise<SyncReport>;
-  on(event: "change", listener: (change: AppliedChange) => void): () => void;
+  start(): void;
+  stop(): Promise<void>;
+  pause(): void;
+  resume(): void;
+  on<K extends keyof ClientEvents>(
+    event: K,
+    listener: (value: ClientEvents[K]) => void,
+  ): () => void;
   close(): Promise<void>;
+}
+export class SyncError extends Error {
+  constructor(readonly code: "offline" | "unauthorized" | "other") {
+    super(
+      code === "unauthorized"
+        ? "Connection authorization refused"
+        : code === "offline"
+          ? "Sync server unavailable"
+          : "Sync failed",
+    );
+    this.name = "SyncError";
+  }
+}
+export interface ClientEvents {
+  change: AppliedChange;
+  status: EngineStatus;
+  synced: SyncReport;
+  error: SyncError;
+  revoked: SyncError;
 }
 export async function open(options: ConnectOptions): Promise<SyncClient> {
   const token = parseKey(options.key);
@@ -128,7 +154,24 @@ export async function open(options: ConnectOptions): Promise<SyncClient> {
       },
     };
   }
-  const listeners = new Set<(change: AppliedChange) => void>();
+  const listeners = new Map<keyof ClientEvents, Set<(value: never) => void>>();
+  let revoked = false;
+  const emit = <K extends keyof ClientEvents>(
+    event: K,
+    value: ClientEvents[K],
+  ) => {
+    for (const listener of [...(listeners.get(event) ?? [])]) {
+      try {
+        listener(value as never);
+      } catch {
+        /* Listener failures cannot interrupt syncing. */
+      }
+    }
+  };
+  const safeStatus = (status: EngineStatus): EngineStatus => ({
+    ...status,
+    lastError: status.lastError === null ? null : "Sync failed",
+  });
   try {
     const engine = new SyncEngine({
       client: wire,
@@ -137,37 +180,85 @@ export async function open(options: ConnectOptions): Promise<SyncClient> {
       selective: selectiveDefaults(),
       ...nodeOptions,
       now: options.clock,
-      log: options.logger,
+      log: options.logger ? () => options.logger?.("Sync activity") : undefined,
       deleteGuard: options.deleteGuard,
       defer: options.defer,
       backoffMs: options.backoffMs,
       fallbackMs: options.fallbackMs,
+      onSync: (report) => emit("synced", report),
+      onFail(_error, kind) {
+        const error = new SyncError(kind);
+        const notifyRevoked = kind === "unauthorized" && !revoked;
+        if (kind === "unauthorized") revoked = true;
+        // Core calls this hook before setting its halted state. Notify after
+        // that transition so a listener can safely resume the client.
+        queueMicrotask(() => {
+          emit("error", error);
+          if (notifyRevoked) emit("revoked", error);
+        });
+      },
       onApplied(change) {
-        for (const listener of listeners) {
-          try {
-            listener(change);
-          } catch {
-            options.logger?.("Change listener failed");
-          }
-        }
+        emit("change", change);
       },
     });
     let closing: Promise<void> | undefined;
+    let stopping: Promise<void> | undefined;
+    const assertOpen = () => {
+      if (closing) throw new Error("Sync client is closed");
+    };
+    const unstatus = engine.onStatus((status) =>
+      emit("status", safeStatus(status)),
+    );
     return {
       scope: info.scope,
       readOnly: info.read_only ?? false,
       get status() {
-        return engine.status;
+        return safeStatus(engine.status);
+      },
+      start() {
+        assertOpen();
+        if (stopping) throw new Error("Sync client is stopping");
+        engine.start();
+      },
+      stop() {
+        assertOpen();
+        return (stopping ??= engine.stop().finally(() => {
+          stopping = undefined;
+        }));
+      },
+      pause() {
+        assertOpen();
+        engine.pause();
+      },
+      resume() {
+        assertOpen();
+        if (stopping) throw new Error("Sync client is stopping");
+        revoked = false;
+        engine.resume();
       },
       async syncOnce() {
         if (closing) throw new Error("Sync client is closed");
-        return engine.sync();
+        if (revoked) throw new SyncError("unauthorized");
+        if (stopping) throw new Error("Sync client is stopping");
+        try {
+          return await engine.sync();
+        } catch {
+          throw new SyncError(
+            revoked
+              ? "unauthorized"
+              : engine.status.state === "offline"
+                ? "offline"
+                : "other",
+          );
+        }
       },
-      on(_event, listener) {
+      on(event, listener) {
         if (closing) throw new Error("Sync client is closed");
-        listeners.add(listener);
+        const group = listeners.get(event) ?? new Set();
+        listeners.set(event, group);
+        group.add(listener as (value: never) => void);
         return () => {
-          listeners.delete(listener);
+          group.delete(listener as (value: never) => void);
         };
       },
       close() {
@@ -176,6 +267,7 @@ export async function open(options: ConnectOptions): Promise<SyncClient> {
             await engine.stop();
           } finally {
             listeners.clear();
+            unstatus();
             release();
           }
         })();
