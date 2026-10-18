@@ -14,6 +14,7 @@
     "types": "tsc -b",
     "test": "vitest run --maxWorkers=2 && node --test test/unit/core-pin.test.mjs",
     "check:core-pin": "node scripts/check-core-pin.mjs",
+    "test:server": "vitest run --config vitest.server.config.ts --maxWorkers=2",
     "vendor:refresh": "node scripts/refresh-core.mjs",
     "smoke": "node scripts/pack-smoke.mjs",
     "format:check": "prettier --check ."

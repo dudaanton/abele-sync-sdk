@@ -16,5 +16,6 @@ jobs:
       - run: npm ci
       - run: npm run types
       - run: npm test
+      - run: npm run test:server
       - run: npm run check:core-pin
       - run: npm run smoke
