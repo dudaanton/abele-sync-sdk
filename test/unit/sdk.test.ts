@@ -14,6 +14,37 @@ const token = {
   scope: { kind: "folder" as const, id: "folder-id", path: "/" },
 };
 const key = encodeAccessToken(token);
+it("supports lifecycle events and restart without leaking timers", async () => {
+  vi.useFakeTimers();
+  const client = await open({ key, files: new MemoryFileSystem(), state: new MemoryStateStore(), transport: {
+    fetch: vi.fn(async (input) => {
+      const path = new URL(String(input)).pathname;
+      return Response.json(path === "/capabilities" ? { protocol: 2 } : path === "/v2/connection" ? connection : { items: [], cursor: 1, next: null });
+    }) as typeof fetch,
+  }, fallbackMs: 100 });
+  const synced = vi.fn();
+  client.on("synced", synced);
+  try {
+    client.start();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(synced).toHaveBeenCalledTimes(1);
+    client.pause();
+    expect(client.status.state).toBe("paused");
+    await vi.advanceTimersByTimeAsync(500);
+    expect(synced).toHaveBeenCalledTimes(1);
+    client.resume();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(synced).toHaveBeenCalledTimes(2);
+    await client.stop();
+    client.start();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(synced).toHaveBeenCalledTimes(3);
+  } finally {
+    await client.close();
+    expect(vi.getTimerCount()).toBe(0);
+    vi.useRealTimers();
+  }
+});
 const connection = {
   protocol: 2,
   token_id: "token-id",
