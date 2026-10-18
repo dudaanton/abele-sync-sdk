@@ -1,7 +1,42 @@
-import { lstatSync, readdirSync, realpathSync, rmSync } from "node:fs";
+import {
+  lstatSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+} from "node:fs";
 import { isAbsolute, join, relative } from "node:path";
 import { stateFolder, type NodeReplica } from "@abele/sync-node";
 import { HistoryError } from "./history.js";
+
+/** Node 0.4.0's disposable scan cache; positive markers are recovery evidence. */
+function disposableProjectionIndex(file: string): boolean {
+  try {
+    const index = JSON.parse(readFileSync(file, "utf8"));
+    return (
+      index?.schema === 1 &&
+      Object.keys(index).sort().join(",") === "entries,schema" &&
+      Array.isArray(index.entries) &&
+      index.entries.every((entry: unknown) => {
+        if (entry === null || typeof entry !== "object") return false;
+        const row = entry as Record<string, unknown>;
+        return (
+          Object.keys(row).sort().join(",") === "marker,mtime,path,size" &&
+          typeof row.path === "string" &&
+          row.path.length > 0 &&
+          typeof row.size === "number" &&
+          Number.isSafeInteger(row.size) &&
+          row.size >= 0 &&
+          typeof row.mtime === "number" &&
+          Number.isFinite(row.mtime) &&
+          row.marker === false
+        );
+      })
+    );
+  } catch {
+    return false;
+  }
+}
 
 /** Stop the engine first. Retire the ledger while its device lock is still held. */
 export function forgetNodeReplica(replica: NodeReplica): void {
@@ -62,6 +97,9 @@ export function forgetNodeReplica(replica: NodeReplica): void {
         stat.isSymbolicLink() ||
         !(
           (files.has(name) && stat.isFile()) ||
+          (name === "projection-index.json" &&
+            stat.isFile() &&
+            disposableProjectionIndex(join(folder, name))) ||
           (directories.has(name) && stat.isDirectory())
         )
       )
