@@ -97,28 +97,39 @@ it.each([
     expect(effects).toEqual([method]);
 });
 
-async function disconnectFixture(state = new MemoryStateStore()) {
+async function disconnectFixture(
+  state = new MemoryStateStore(),
+  read?: (
+    input: string | URL | Request,
+    init?: RequestInit,
+  ) => Promise<Response>,
+) {
   const key = encodeAccessToken({
     v: 1,
     address: "https://example.test",
     key: "a".repeat(43),
     scope: { kind: "folder", id: "scope", path: "/" },
   });
-  const fetcher = vi.fn(async (input: string | URL | Request) =>
-    Response.json(
-      String(input).endsWith("/capabilities")
-        ? { protocol: 2 }
-        : String(input).endsWith("/v2/connection")
-          ? {
-              protocol: 2,
-              token_id: "token",
-              space_id: "space",
-              scope: { kind: "folder", id: "scope", path: "/" },
-              status: "active",
-              limits: { max_file_bytes: 1024, quota_bytes: null },
-            }
-          : { items: [], cursor: 1, next: null },
-    ),
+  const fetcher = vi.fn(
+    async (input: string | URL | Request, init?: RequestInit) =>
+      read &&
+      !String(input).endsWith("/capabilities") &&
+      !String(input).endsWith("/v2/connection")
+        ? read(input, init)
+        : Response.json(
+            String(input).endsWith("/capabilities")
+              ? { protocol: 2 }
+              : String(input).endsWith("/v2/connection")
+                ? {
+                    protocol: 2,
+                    token_id: "token",
+                    space_id: "space",
+                    scope: { kind: "folder", id: "scope", path: "/" },
+                    status: "active",
+                    limits: { max_file_bytes: 1024, quota_bytes: null },
+                  }
+                : { items: [], cursor: 1, next: null },
+          ),
   );
   const client = await open({
     key,
@@ -128,6 +139,79 @@ async function disconnectFixture(state = new MemoryStateStore()) {
   });
   return { client, fetcher };
 }
+
+it.each(["close", "disconnect"] as const)(
+  "%s cancels a blocked sync before draining queued history",
+  async (method) => {
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    let release!: () => void;
+    const state = new MemoryStateStore();
+    await state.setMeta("sentinel", "saved");
+    let block = true;
+    const { client, fetcher } = await disconnectFixture(
+      state,
+      async (input, init) => {
+        if (String(input).endsWith("/v2/trash")) return Response.json([]);
+        if (!block) return Response.json({ items: [], cursor: 1, next: null });
+        block = false;
+        return new Promise<Response>((resolve, reject) => {
+          release = () =>
+            resolve(Response.json({ items: [], cursor: 1, next: null }));
+          const abort = () =>
+            reject(new DOMException("Read aborted", "AbortError"));
+          init?.signal?.addEventListener("abort", abort, { once: true });
+          if (init?.signal?.aborted) abort();
+          entered();
+        });
+      },
+    );
+    let syncSettled = false;
+    const sync = client.syncOnce().finally(() => {
+      syncSettled = true;
+    });
+    const observedSync = Promise.allSettled([sync]);
+    await started;
+    const trash = client.trash();
+    const observedTrash = Promise.allSettled([trash]);
+    await Promise.resolve();
+    const shutdown = client[method]();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let callsAtShutdown = 0;
+    try {
+      await Promise.race([
+        shutdown,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error("Shutdown did not cancel its blocked sync")),
+            200,
+          );
+        }),
+      ]);
+      expect(syncSettled).toBe(true);
+      expect((await observedSync)[0].status).toBe("rejected");
+      await observedTrash;
+      if (method === "disconnect") {
+        expect(state.metadataKeys("")).toEqual([]);
+        expect(await state.getCursor()).toBe(0);
+      }
+      const calls = fetcher.mock.calls.length;
+      callsAtShutdown = calls;
+      await Promise.resolve();
+      expect(fetcher).toHaveBeenCalledTimes(calls);
+    } finally {
+      clearTimeout(timer);
+      release();
+      await Promise.allSettled([shutdown, observedSync, observedTrash]);
+    }
+    // Even the abandoned transport response cannot resume work after shutdown.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(fetcher).toHaveBeenCalledTimes(callsAtShutdown);
+    if (method === "disconnect") expect(state.metadataKeys("")).toEqual([]);
+  },
+);
 
 it.each([false, true])(
   "disconnect explicitly refuses an already closing client (concurrent=%s)",
@@ -139,6 +223,28 @@ it.each([false, true])(
     if (!concurrent) await closing;
     await expect(client.disconnect()).rejects.toMatchObject({ code: "closed" });
     await closing;
+  },
+);
+
+it.each(["close", "disconnect"] as const)(
+  "%s closes admission before emitting the shutdown pause",
+  async (method) => {
+    const { client, fetcher } = await disconnectFixture();
+    const attempts: unknown[] = [];
+    client.on("status", (status) => {
+      if (status.state !== "paused") return;
+      try {
+        client.resume();
+        attempts.push("resumed");
+      } catch (error) {
+        attempts.push(error);
+      }
+    });
+    const calls = fetcher.mock.calls.length;
+    await client[method]();
+    expect(attempts).toHaveLength(1);
+    expect(attempts[0]).toBeInstanceOf(Error);
+    expect(fetcher).toHaveBeenCalledTimes(calls);
   },
 );
 
@@ -175,6 +281,7 @@ it.each([false, true])(
     });
     await started;
     let finished = false;
+    const callsBeforeShutdown = fetcher.mock.calls.length;
     const disconnect = client.disconnect().then(() => {
       finished = true;
     });
@@ -190,6 +297,7 @@ it.each([false, true])(
       await disconnect;
     }
     expect(state.metadataKeys("")).toEqual([]);
+    expect(fetcher).toHaveBeenCalledTimes(callsBeforeShutdown);
     expect(await state.getCursor()).toBe(0);
     const calls = fetcher.mock.calls.length;
     await new Promise((resolve) => setTimeout(resolve, 10));

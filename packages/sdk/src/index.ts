@@ -280,11 +280,22 @@ async function openClient(
           .catch(() => {});
       else heldSignature = "";
     });
+    const settleOperations = async () => {
+      // Publish `closing` before pause emits status to potentially reentrant hosts.
+      await Promise.resolve();
+      // A pending history job can be queued behind a cancellable sync read.
+      // Cancel that read immediately; pausing also prevents a delayed delete
+      // decision from starting another sync when its metadata write completes.
+      engine.pause();
+      await Promise.all([engine.stop(), operations.drain()]);
+      // A previously admitted multi-stage job may enter the engine after the
+      // first stop returned. Drain it completely, then seal engine shutdown.
+      await engine.stop();
+    };
     const close = () => {
       closing ??= (async () => {
         try {
-          await operations.drain();
-          await engine.stop();
+          await settleOperations();
         } finally {
           listeners.clear();
           unstatus();
@@ -301,8 +312,7 @@ async function openClient(
         if (closing) return Promise.reject(new HistoryError("closed"));
         disconnecting = closing = historyOperation(async () => {
           try {
-            await operations.drain();
-            await engine.stop();
+            await settleOperations();
             await forget();
           } finally {
             listeners.clear();
