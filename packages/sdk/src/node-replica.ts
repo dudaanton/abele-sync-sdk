@@ -8,6 +8,8 @@ export class ReplicaConfigurationError extends Error {
   }
 }
 export async function openReplica(options: NodeKeyOptions) {
+  const { assertProjectionCachesSafe } = await import("./projection-cache.js");
+  assertProjectionCachesSafe(options.dir, options.stateDir);
   const { openNodeReplica, NodeReplicaConfigError } =
     await import("@abele/sync-node");
   try {

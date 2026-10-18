@@ -1,5 +1,14 @@
 import { expect, it, vi } from "vitest";
-import { mkdir, mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  rm,
+  writeFile,
+  readFile,
+  symlink,
+  lstat,
+  readlink,
+} from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { resolve, join } from "node:path";
 import {
@@ -23,6 +32,74 @@ const token = {
   scope: { kind: "folder" as const, id: "folder-id", path: "/" },
 };
 const key = encodeAccessToken(token);
+it.each(
+  ["malformed", "unowned", "symlink"].flatMap((kind) => [
+    { kind, reopen: false, external: false },
+    { kind, reopen: false, external: true },
+    { kind, reopen: true, external: true },
+  ]),
+)(
+  "refuses preexisting $kind projection evidence (reopen=$reopen, external=$external)",
+  async ({ kind, reopen, external }) => {
+    await mkdir(".cache", { recursive: true });
+    const root = await mkdtemp(resolve(".cache/cache-open-"));
+    const dir = join(root, "files"),
+      stateDir = external ? join(root, "state") : undefined;
+    const durable = stateDir ?? join(dir, ".abele-sync");
+    await mkdir(join(dir, ".abele-sync"), { recursive: true });
+    await mkdir(durable, { recursive: true });
+    const file = join(durable, "projection-index.json"),
+      target = join(root, "unrelated.json");
+    const bytes =
+      kind === "malformed"
+        ? "{broken bytes"
+        : kind === "symlink"
+          ? '{"schema":1,"entries":[]}'
+          : '{"user":"data"}';
+    try {
+      if (reopen) {
+        const client = await open({
+          key,
+          dir,
+          stateDir,
+          transport: transport(),
+        });
+        await client.close();
+      }
+      const config = reopen
+        ? await readFile(join(durable, "config.json"), "utf8")
+        : undefined;
+      await rm(file, { force: true });
+      await writeFile(target, bytes);
+      if (kind === "symlink") await symlink(target, file);
+      else await writeFile(file, bytes);
+      const error = await open({
+        key,
+        dir,
+        stateDir,
+        transport: transport(),
+      }).catch((e) => e);
+      if (typeof error?.close === "function") await error.close();
+      expect(error).toBeInstanceOf(RecoveryRequiredError);
+      expect(error.code).toBe("RECOVERY_REQUIRED");
+      expect(error.message).toContain("Preserve");
+      expect(error.message).not.toContain(root);
+      expect(error.cause).toBeUndefined();
+      expect(await readFile(file, "utf8")).toBe(bytes);
+      expect(await readFile(target, "utf8")).toBe(bytes);
+      if (reopen)
+        expect(await readFile(join(durable, "config.json"), "utf8")).toBe(
+          config,
+        );
+      if (kind === "symlink") {
+        expect((await lstat(file)).isSymbolicLink()).toBe(true);
+        expect(await readlink(file)).toBe(target);
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
 it("sanitizes a known recovery refusal without losing its classification", async () => {
   const failure = new ExternalStateError("recovery-required", { cause: key });
   failure.message = "private recovery path " + key;
