@@ -12,12 +12,13 @@ const task = taskFromFrontmatter(
   { date: "2026-04-03", dateTime: "09:45", topics: ["garden"] },
   { labelProperty: "topics" },
 );
+const markdown = "---\ntype: task\nlabels: [garden]\n---\nWater seedlings.\n";
 const note = noteFromMarkdown("Notes/Seedlings.md", markdown);
+console.log(task.date?.format("YYYY-MM-DD HH:mm"), note.task?.labels);
 ```
 
-Here `markdown` is caller-supplied text, for example
-`"---\ntype: task\nlabels: [garden]\n---\nWater seedlings.\n"`.
-The runnable repository example is `examples/reading-notes/index.js`.
+`markdown` is caller-supplied text. For a complete sync-and-read example, see
+[reading notes](https://github.com/dudaanton/abele-sync-sdk/tree/main/examples/reading-notes).
 
 ## Task fields and dates
 

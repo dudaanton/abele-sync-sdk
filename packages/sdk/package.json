@@ -2,6 +2,15 @@
   "name": "@abele/sync-sdk",
   "version": "0.1.0",
   "license": "GPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dudaanton/abele-sync-sdk.git",
+    "directory": "packages/sdk"
+  },
+  "homepage": "https://github.com/dudaanton/abele-sync-sdk/tree/main/packages/sdk#readme",
+  "bugs": {
+    "url": "https://github.com/dudaanton/abele-sync-sdk/issues"
+  },
   "type": "module",
   "engines": {
     "node": ">=22"
