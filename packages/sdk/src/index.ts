@@ -15,9 +15,11 @@ import {
   type AppliedChange,
 } from "@abele/sync-core";
 import { createReplica, type Replica } from "./replica.js";
-export type { Replica, ReplicaEntry } from "./replica.js";
 import { openReplica } from "./node-replica.js";
 export { ReplicaConfigurationError } from "./node-replica.js";
+import { conflictEvents, type ConflictEvent } from "./conflicts.js";
+export type { ConflictEvent } from "./conflicts.js";
+export type { Replica, ReplicaEntry } from "./replica.js";
 
 export class InvalidKey extends Error {
   readonly code = "INVALID_KEY";
@@ -82,6 +84,7 @@ export class SyncError extends Error {
   }
 }
 export interface ClientEvents {
+  conflict: ConflictEvent;
   change: AppliedChange;
   status: EngineStatus;
   synced: SyncReport;
@@ -185,7 +188,11 @@ export async function open(options: ConnectOptions): Promise<SyncClient> {
       defer: options.defer,
       backoffMs: options.backoffMs,
       fallbackMs: options.fallbackMs,
-      onSync: (report) => emit("synced", report),
+      onSync: (report) => {
+        for (const conflict of conflictEvents(report))
+          emit("conflict", conflict);
+        emit("synced", report);
+      },
       onFail(_error, kind) {
         const error = new SyncError(kind);
         const notifyRevoked = kind === "unauthorized" && !revoked;
