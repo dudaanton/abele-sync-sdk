@@ -5,10 +5,15 @@ the v2 routes exercised here, including uploaded file creation and range reads;
 it is not a replacement for the Docker compatibility suite.
 
 Vitest controls scheduler timers; real short waits let loopback I/O settle.
-Coverage includes compatibility validation, revocation, sanitized errors,
-bounded retry scheduling, reconnect catch-up and duplicate/older event cursors.
-The 5xx retry guarantee is recorded as `it.fails` with a `BUG:` title: core
-classifies HTTP 5xx as a permanent error instead of scheduling an offline retry.
-Another `BUG:` test records that `open()` propagates the server's connection
-error message verbatim, exposing secrets if the peer echoes them. Runtime sync
-events and status are sanitized; the opening handshake is not.
+Coverage includes compatibility validation, revocation with halted requests until
+resume, sanitized errors, bounded retry scheduling, reconnect catch-up and
+idempotent duplicate/older event cursors. HTTP 5xx failures enter the offline
+state; retry delays increase, cap, and reset after success. Socket reconnect
+delays also increase and cap, then reset after a valid frame.
+
+Opening errors and runtime error events, status and logger output are sanitized.
+The opening tests check that untrusted messages, causes and details do not expose
+credentials, while typed error classifications and transient HTTP status are
+preserved. The two tests whose titles still start with `BUG:` (opening error
+sanitization and 5xx backoff) are ordinary regression tests, not `it.fails`
+expected failures.
