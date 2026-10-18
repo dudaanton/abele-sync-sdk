@@ -129,6 +129,12 @@ connection credentials, and keeps user files. Custom adapters must enumerate
 metadata via `metadataKeys` when they implement metadata storage; otherwise this
 operation fails with `HistoryError("unsupported")`. The caller still owns its
 adapters. The Node state directory remains empty after releasing its lock.
+Node disconnect refuses ancestor state directories, unknown state entries, and
+external state directories containing subdirectories other than the lock guard:
+their contents cannot safely be attributed to this replica. Refusal preserves
+the state and user data. Disconnect must run before `close()`; an already closing
+client rejects disconnect with code `closed`. Shutdown drains admitted history
+operations before releasing the replica or forgetting state.
 `revoke()` revokes this connection's own token on the server and stops syncing;
 it keeps local state. A self-revoked client cannot start or resume. Disconnect it
 separately to forget the device locally. History operations throw sanitized

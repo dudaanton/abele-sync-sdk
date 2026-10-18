@@ -25,6 +25,7 @@ export type { ConflictEvent } from "./conflicts.js";
 export type { Replica, ReplicaEntry } from "./replica.js";
 import {
   createHistory,
+  PendingHistoryOperations,
   forgetState,
   HistoryError,
   historyOperation,
@@ -248,10 +249,13 @@ async function openClient(
     });
     let closing: Promise<void> | undefined;
     let stopping: Promise<void> | undefined;
+    let disconnecting: Promise<void> | undefined;
+    const operations = new PendingHistoryOperations();
     const assertOpen = () => {
       if (closing) throw new Error("Sync client is closed");
     };
     const history = createHistory({
+      operations,
       engine,
       wire: (nodeOptions.client ?? wire) as V2EngineClient,
       state: state!,
@@ -279,6 +283,7 @@ async function openClient(
     const close = () => {
       closing ??= (async () => {
         try {
+          await operations.drain();
           await engine.stop();
         } finally {
           listeners.clear();
@@ -292,9 +297,11 @@ async function openClient(
       replica: createReplica(files!, state!, assertOpen),
       ...history,
       disconnect() {
-        if (closing) return closing;
-        closing = historyOperation(async () => {
+        if (disconnecting) return disconnecting;
+        if (closing) return Promise.reject(new HistoryError("closed"));
+        disconnecting = closing = historyOperation(async () => {
           try {
+            await operations.drain();
             await engine.stop();
             await forget();
           } finally {
@@ -309,13 +316,15 @@ async function openClient(
         return historyOperation(async () => {
           assertOpen();
           if (revoked) throw new HistoryError("unauthorized");
-          await engine.stop();
-          await AccessClient.fromToken(options.key, transport).revoke(
-            info.token_id,
-          );
-          revoked = true;
-          selfRevoked = true;
-          emit("revoked", new SyncError("unauthorized"));
+          return operations.run(async () => {
+            await engine.stop();
+            await AccessClient.fromToken(options.key, transport).revoke(
+              info.token_id,
+            );
+            revoked = true;
+            selfRevoked = true;
+            emit("revoked", new SyncError("unauthorized"));
+          });
         });
       },
       scope: info.scope,

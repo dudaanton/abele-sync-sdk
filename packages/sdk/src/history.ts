@@ -30,6 +30,23 @@ export class HistoryError extends Error {
   }
 }
 export type DeleteDecisions = Pick<DeleteDecision, "kind" | "fileIds">;
+/** Includes transport reads: the v2 adapter can durably record their effects. */
+export class PendingHistoryOperations {
+  private readonly pending = new Set<Promise<unknown>>();
+  run<T>(job: () => Promise<T>): Promise<T> {
+    // Register before running user adapters or hooks, which may reenter close().
+    const result = Promise.resolve().then(job);
+    this.pending.add(result);
+    const remove = () => {
+      this.pending.delete(result);
+    };
+    void result.then(remove, remove);
+    return result;
+  }
+  async drain(): Promise<void> {
+    while (this.pending.size) await Promise.allSettled([...this.pending]);
+  }
+}
 export interface HistoryApi {
   history(path: string, query?: VersionsQuery): Promise<VersionInfo[]>;
   restore(path: string, version: string): Promise<CommitOpResult>;
@@ -82,12 +99,13 @@ export function createHistory(options: {
   wire: V2EngineClient;
   state: StateStore;
   assertOpen(): void;
+  operations?: PendingHistoryOperations;
 }): HistoryApi {
   const { engine, wire, state, assertOpen } = options;
   const run = <T>(job: () => Promise<T>) =>
     historyOperation(async () => {
       assertOpen();
-      return job();
+      return options.operations ? options.operations.run(job) : job();
     });
   const resolve = async (path: string): Promise<string> => {
     const local = await state.get(path);

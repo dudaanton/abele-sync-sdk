@@ -9,7 +9,194 @@ import {
 } from "@abele/sync-core";
 import { encodeAccessToken } from "@abele/sync-protocol";
 import { open } from "../../packages/sdk/src/index.js";
-import { createHistory } from "../../packages/sdk/src/history.js";
+import {
+  createHistory,
+  PendingHistoryOperations,
+} from "../../packages/sdk/src/history.js";
+
+it.each([
+  "restore",
+  "restoreDeleted",
+  "applyDeferred",
+  "trash",
+  "history",
+] as const)("tracks the complete asynchronous %s operation", async (method) => {
+  let release!: () => void;
+  const blocked = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const operations = new PendingHistoryOperations();
+  const effects: string[] = [];
+  const engine = {
+    runExclusive: async <T>(job: () => Promise<T>) => {
+      await blocked;
+      return job();
+    },
+    restore: async () => {
+      effects.push("restore");
+      return { status: "applied" };
+    },
+    restoreDeleted: async () => {
+      effects.push("restoreDeleted");
+      return { status: "applied" };
+    },
+    applyDeferred: async () => {
+      await blocked;
+      effects.push("applyDeferred");
+      return {};
+    },
+  };
+  const state = new MemoryStateStore();
+  await state.put({
+    path: "Example.md",
+    wirePath: "Example.md",
+    fileId: "file",
+    versionId: "v",
+    sha: "",
+    size: 0,
+    mtime: 0,
+  });
+  const wire = {
+    trash: async () => [{ path: "Example.md", file_id: "file" }],
+    versions: async () => [],
+  };
+  const api = createHistory({
+    engine,
+    wire,
+    state,
+    operations,
+    assertOpen() {},
+  } as never);
+  const running =
+    method === "restore"
+      ? api.restore("Example.md", "v")
+      : method === "restoreDeleted"
+        ? api.restoreDeleted("file")
+        : method === "history"
+          ? api.history("Example.md")
+          : api[method]();
+  let drained = false;
+  const drain = operations.drain().then(() => {
+    drained = true;
+  });
+  try {
+    await Promise.resolve();
+    expect(drained).toBe(false);
+    expect(effects).toEqual([]);
+  } finally {
+    release();
+    await running;
+    await drain;
+  }
+  expect(drained).toBe(true);
+  if (
+    method === "restore" ||
+    method === "restoreDeleted" ||
+    method === "applyDeferred"
+  )
+    expect(effects).toEqual([method]);
+});
+
+async function disconnectFixture(state = new MemoryStateStore()) {
+  const key = encodeAccessToken({
+    v: 1,
+    address: "https://example.test",
+    key: "a".repeat(43),
+    scope: { kind: "folder", id: "scope", path: "/" },
+  });
+  const fetcher = vi.fn(async (input: string | URL | Request) =>
+    Response.json(
+      String(input).endsWith("/capabilities")
+        ? { protocol: 2 }
+        : String(input).endsWith("/v2/connection")
+          ? {
+              protocol: 2,
+              token_id: "token",
+              space_id: "space",
+              scope: { kind: "folder", id: "scope", path: "/" },
+              status: "active",
+              limits: { max_file_bytes: 1024, quota_bytes: null },
+            }
+          : { items: [], cursor: 1, next: null },
+    ),
+  );
+  const client = await open({
+    key,
+    files: new MemoryFileSystem(),
+    state,
+    transport: { fetch: fetcher },
+  });
+  return { client, fetcher };
+}
+
+it.each([false, true])(
+  "disconnect explicitly refuses an already closing client (concurrent=%s)",
+  async (concurrent) => {
+    const state = new MemoryStateStore();
+    await state.setMeta("sentinel", "retained");
+    const { client } = await disconnectFixture(state);
+    const closing = client.close();
+    if (!concurrent) await closing;
+    await expect(client.disconnect()).rejects.toMatchObject({ code: "closed" });
+    await closing;
+  },
+);
+
+it.each([false, true])(
+  "drains a delayed real delete decision before forgetting state (paused=%s)",
+  async (paused) => {
+    let unblock!: () => void;
+    let entered!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      unblock = resolve;
+    });
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    class DelayedState extends MemoryStateStore {
+      override async setMeta(key: string, value: string | null) {
+        if (key === "delete-decision" && value !== null) {
+          entered();
+          await blocked;
+        }
+        return super.setMeta(key, value);
+      }
+    }
+    const state = new DelayedState();
+    await state.setMeta(
+      "held-deletes",
+      JSON.stringify([{ path: "Example.md", fileId: "file" }]),
+    );
+    const { client, fetcher } = await disconnectFixture(state);
+    if (paused) client.pause();
+    const decision = client.decideDeletes({
+      kind: "confirm",
+      fileIds: ["file"],
+    });
+    await started;
+    let finished = false;
+    const disconnect = client.disconnect().then(() => {
+      finished = true;
+    });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(finished).toBe(false);
+      await expect(
+        client.decideDeletes({ kind: "confirm", fileIds: ["file"] }),
+      ).rejects.toMatchObject({ code: "closed" });
+    } finally {
+      unblock();
+      await decision;
+      await disconnect;
+    }
+    expect(state.metadataKeys("")).toEqual([]);
+    expect(await state.getCursor()).toBe(0);
+    const calls = fetcher.mock.calls.length;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(state.metadataKeys("")).toEqual([]);
+    expect(fetcher).toHaveBeenCalledTimes(calls);
+  },
+);
 
 it("resolves paths, delegates decisions, and sanitizes restore refusals", async () => {
   const state = new MemoryStateStore();
