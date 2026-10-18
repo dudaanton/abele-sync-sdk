@@ -8,7 +8,8 @@ No host data directory is mounted. Cleanup removes the container, clients and
 temporary replica directories on both success and failure.
 
 The tests cover bidirectional convergence with Memory adapters and Node folder
-replicas, plus remote change events. Node replica tests need permission to read
+replicas, socket delivery before fallback polling, and admin CLI revocation with
+a single notification and halted retries. Node replica tests need permission to read
 the system uptime for the core lock's boot identity. Sandboxes denying that call
 fail with `uv_uptime returned EPERM`; rerun outside that sandbox:
 
@@ -21,4 +22,5 @@ To run only the real-server Memory case in that sandbox:
 
 ```sh
 npm run test:server -- -t 'two Memory'
+npm run test:server -- -t 'delivers live'
 ```

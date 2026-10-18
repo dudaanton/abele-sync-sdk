@@ -97,6 +97,14 @@ export async function startServer() {
     return {
       address,
       keys: [first.token, second.token] as [string, string],
+      async revoke(index: 0 | 1) {
+        const { V2EngineClient } = await import("@abele/sync-core");
+        const info = await new V2EngineClient(
+          index === 0 ? first.token : second.token,
+          { fetch },
+        ).connection();
+        await admin("connections", "revoke", info.token_id, "--yes");
+      },
       close,
     };
   } catch (error) {
