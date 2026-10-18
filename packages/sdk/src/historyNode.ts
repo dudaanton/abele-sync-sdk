@@ -1,6 +1,7 @@
-import { readdirSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { lstatSync, readdirSync, realpathSync, rmSync } from "node:fs";
+import { isAbsolute, join, relative } from "node:path";
 import { stateFolder, type NodeReplica } from "@abele/sync-node";
+import { HistoryError } from "./history.js";
 
 /** Stop the engine first. Retire the ledger while its device lock is still held. */
 export function forgetNodeReplica(replica: NodeReplica): void {
@@ -10,10 +11,62 @@ export function forgetNodeReplica(replica: NodeReplica): void {
     stateFolder(replica.dir, replica.stateDir),
     stateFolder(replica.dir),
   ]);
-  const contents = [...folders].map((folder) => ({
-    folder,
-    names: readdirSync(folder),
-  }));
+  const contents = [...folders].map((folder) => {
+    const stat = lstatSync(folder);
+    if (stat.isSymbolicLink() || !stat.isDirectory())
+      throw new HistoryError("unsupported");
+    return { folder, names: readdirSync(folder) };
+  });
+  // An external directory is not a namespace the SDK may recursively own.
+  // Refuse mixed-use/ancestor layouts before closing or deleting anything.
+  if (replica.stateDir) {
+    const durable = realpathSync(replica.stateDir);
+    const child = relative(durable, realpathSync(replica.dir));
+    if (
+      !child ||
+      (!isAbsolute(child) && child !== ".." && !child.startsWith("../"))
+    )
+      throw new HistoryError("unsupported");
+    // No ownership manifest covers arbitrary preexisting directory contents in
+    // an external stateDir. Refuse those rather than recursively deleting them.
+    for (const name of readdirSync(durable)) {
+      if (
+        name !== "lock.mutation" &&
+        lstatSync(join(durable, name)).isDirectory()
+      )
+        throw new HistoryError("unsupported");
+    }
+  }
+  const files = new Set([
+    "config.json",
+    "state.db",
+    "state.db-wal",
+    "state.db-shm",
+    "lock",
+  ]);
+  // Reserved namespaces used by the pinned Node adapter. Any unknown entry is
+  // evidence of mixed ownership, so refuse the entire cleanup, never sweep it.
+  const directories = new Set([
+    "lock.mutation",
+    "recovery",
+    "external",
+    "scoped-outbox",
+    "tmp",
+    "code-approvals",
+    "stages",
+  ]);
+  for (const { folder, names } of contents)
+    for (const name of names) {
+      const stat = lstatSync(join(folder, name));
+      if (
+        stat.isSymbolicLink() ||
+        !(
+          (files.has(name) && stat.isFile()) ||
+          (directories.has(name) && stat.isDirectory())
+        )
+      )
+        throw new HistoryError("unsupported");
+    }
   replica.fence?.close();
   replica.state.close();
   // The lock and its mutation guard belong to the lock owner until close().

@@ -14,6 +14,49 @@ import {
 import { resolve, join } from "node:path";
 import { readConfig, SqliteStateStore, stateDbFile } from "@abele/sync-node";
 
+it.each(["ancestor", "mixed-use"])(
+  "refuses disconnect cleanup of an unsafe state directory (%s)",
+  async (placement) => {
+    const server = await startServer();
+    let root: string | undefined;
+    let client: Awaited<ReturnType<typeof open>> | undefined;
+    try {
+      await mkdir(resolve(".cache"), { recursive: true });
+      root = await mkdtemp(resolve(".cache/disconnect-ownership-"));
+      const dir = join(root, "files");
+      const stateDir = placement === "ancestor" ? root : join(root, "state");
+      await mkdir(dir);
+      if (stateDir !== root) await mkdir(stateDir);
+      await writeFile(join(dir, "Example.md"), "user data");
+      await writeFile(join(stateDir, "keep.txt"), "unrelated data");
+      client = await open({ key: server.keys[0], dir, stateDir });
+      const credentials = await readFile(join(stateDir, "config.json"), "utf8");
+      await expect(client.disconnect()).rejects.toMatchObject({
+        code: "unsupported",
+      });
+      expect(await readFile(join(dir, "Example.md"), "utf8")).toBe("user data");
+      expect(await readFile(join(stateDir, "keep.txt"), "utf8")).toBe(
+        "unrelated data",
+      );
+      expect(await readFile(join(stateDir, "config.json"), "utf8")).toBe(
+        credentials,
+      );
+    } finally {
+      // A refused disconnect has already released the replica; close shares that refusal.
+      try {
+        await client?.close().catch(() => {});
+      } finally {
+        try {
+          if (root) await rm(root, { recursive: true, force: true });
+        } finally {
+          await server.close();
+        }
+      }
+    }
+  },
+  180_000,
+);
+
 it.each([false, true])(
   "disconnects a Node replica, keeping files and forgetting state (external=%s)",
   async (external) => {

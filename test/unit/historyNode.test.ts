@@ -31,8 +31,8 @@ it.each([false, true])(
       ])
         writeFileSync(join(durable, name), "state");
       mkdirSync(join(durable, "lock.mutation"));
-      mkdirSync(join(durable, "recovery"));
-      writeFileSync(join(durable, "recovery", "intent"), "state");
+      mkdirSync(join(folder, "recovery"));
+      writeFileSync(join(folder, "recovery", "intent"), "state");
       if (external) {
         writeFileSync(join(folder, "lock"), "local lock");
         mkdirSync(join(folder, "stages"));
@@ -60,6 +60,47 @@ it.each([false, true])(
     } finally {
       rmSync(`${root}-state`, { recursive: true, force: true });
       rmSync(`${root}-sentinel`, { force: true });
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
+
+it.each(["ancestor", "unrelated", "reserved-directory"])(
+  "refuses unsafe state ownership before mutation (%s)",
+  (placement) => {
+    mkdirSync(resolve(".cache"), { recursive: true });
+    const root = mkdtempSync(resolve(".cache/ownership-"));
+    try {
+      const dir = join(root, "files");
+      const stateDir = placement === "ancestor" ? root : join(root, "state");
+      mkdirSync(dir);
+      mkdirSync(join(dir, ".abele-sync"));
+      if (stateDir !== root) mkdirSync(stateDir);
+      writeFileSync(join(dir, "Example.md"), "user data");
+      const saved =
+        placement === "reserved-directory"
+          ? join(stateDir, "recovery", "keep.txt")
+          : join(stateDir, "keep.txt");
+      if (placement === "reserved-directory")
+        mkdirSync(join(stateDir, "recovery"));
+      writeFileSync(saved, "unrelated");
+      writeFileSync(join(stateDir, "config.json"), "credentials");
+      const close = vi.fn();
+      expect(() =>
+        forgetNodeReplica({
+          dir,
+          stateDir,
+          state: { close },
+          fence: { assertOwner() {}, close },
+        } as never),
+      ).toThrow();
+      expect(close).not.toHaveBeenCalled();
+      expect(readFileSync(join(dir, "Example.md"), "utf8")).toBe("user data");
+      expect(readFileSync(saved, "utf8")).toBe("unrelated");
+      expect(readFileSync(join(stateDir, "config.json"), "utf8")).toBe(
+        "credentials",
+      );
+    } finally {
       rmSync(root, { recursive: true, force: true });
     }
   },
