@@ -1,6 +1,9 @@
 # @abele/notes
 
 Pure task and Markdown note values, with no Obsidian or Node API imports.
+Requires Node.js 22+ for the supported package runtime and ESM imports.
+Installation target: `npm install @abele/notes`. In this workspace run `npm ci`
+and `npm run build` first.
 
 ```ts
 import { noteFromMarkdown, taskFromFrontmatter } from "@abele/notes";
@@ -11,6 +14,57 @@ const task = taskFromFrontmatter(
 );
 const note = noteFromMarkdown("Notes/Seedlings.md", markdown);
 ```
+
+Here `markdown` is caller-supplied text, for example
+`"---\ntype: task\nlabels: [garden]\n---\nWater seedlings.\n"`.
+The runnable repository example is `examples/reading-notes/index.js`.
+
+## Task fields and dates
+
+| Frontmatter            | Returned value                                                  |
+| ---------------------- | --------------------------------------------------------------- |
+| `created`, `completed` | `createdAt`, `completedAt`: Dayjs or null                       |
+| `date`, `dateTime`     | `date` with valid time applied, plus separate `dateTime` value  |
+| `due`, `dueTime`       | `due` with valid time applied, plus separate `dueTime` value    |
+| `recurrence`           | Truthy value retained, otherwise null; no automatic calculation |
+| `labels`               | Normalized labels; configurable with `labelProperty`            |
+| `priority`             | low, medium, high or null; configurable with `priorityProperty` |
+| `groups`               | Array entries that are strings, otherwise an empty array        |
+
+Dates use `YYYY-MM-DD`, times `HH:mm`. A time needs its corresponding date.
+Parsing uses local Dayjs time and forgiving normalization, not strict calendar
+validation. There is no task time-zone parameter or reminder property mapping.
+Labels accept a scalar or list, trim hashes/whitespace, resolve wikilink display
+text and collapse duplicates without case sensitivity. A comma in a scalar is
+not a separator. Priority uses the first list item, trimmed and case-insensitive.
+Options are evaluated when parsing; empty property names fall back to defaults.
+
+## Recurrence and zones
+
+```ts
+import { dayjs, RecurrenceParser } from "@abele/notes";
+
+const parser = new RecurrenceParser();
+const next = parser.getNextDate(dayjs("2026-04-03"), "every 3 days");
+console.log(next?.format("YYYY-MM-DD")); // 2026-04-06
+```
+
+`parse(pattern)` returns a rule or null. `getNextDate(baseDate, pattern,
+completionDate?)` returns one Dayjs date or null. Supported forms include
+`every N days` (also hours/weeks/months/years), `every 2 weeks on Mon, Wed`,
+`every month on 1, 15`, `every first Monday`, `every last day of month`, and
+`from completion`. Completion falls back to the base when omitted. Parsing is
+permissive, uses English patterns, and is not an RFC recurrence-rule validator.
+Not every combination yields a next date. Validate positive intervals in your
+application. No occurrence window, scheduler or notification service is supplied.
+
+Task dates do not automatically use calendar zones. The separate
+`resolveZone(tzid)` resolves known Windows names, IANA names and some prefixed
+names, or null. `wallTimeToInstant({ year, month, day, hour, minute, second }, zone)`
+returns epoch milliseconds using platform Intl rules (month is 1–12). Resolve
+the zone first. Ambiguous autumn time selects the first occurrence; skipped
+spring time is interpreted after the transition. This helper does not parse
+calendar files or register embedded VTIMEZONE definitions.
 
 `taskFromFrontmatter` mirrors the plugin's `Task.load` mapping, plus its labels,
 priority and groups getters. Dates are Dayjs values or `null`; `date` and `due`
@@ -55,3 +109,11 @@ Runtime pins match the plugin: `dayjs` **1.11.18**, `js-yaml` **4.3.2**.
 
 The plugin repository is unchanged. Metadata tests are ported from its
 `taskMeta.test.ts`; tree, recurrence and YAML parity cases are also retained.
+
+## Licence
+
+GPL-3.0-only; see LICENSE. Conveying the package or a combined derivative work
+requires complying with GPLv3 source, licence and notice obligations. Private
+modification/use does not require public release; network access alone creates
+no AGPL-style source offer. Distribution to others, including private or
+commercial distribution, still carries GPL obligations.

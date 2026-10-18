@@ -1,12 +1,13 @@
 import { parseArgs } from "node:util";
 
 const usage =
-  "Usage: node examples/folder-mirror --key <key> --dir <dir> (--once | --watch)";
+  "Usage: node examples/folder-mirror --key <key> --dir <dir> [--state-dir <dir>] (--once | --watch)";
 async function main() {
   const { values } = parseArgs({
     options: {
       key: { type: "string" },
       dir: { type: "string" },
+      "state-dir": { type: "string" },
       once: { type: "boolean" },
       watch: { type: "boolean" },
       help: { type: "boolean" },
@@ -23,7 +24,11 @@ async function main() {
   )
     throw new Error(usage);
   const { open } = await import("@abele/sync-sdk");
-  const client = await open({ key: values.key, dir: values.dir });
+  const client = await open({
+    key: values.key,
+    dir: values.dir,
+    stateDir: values["state-dir"],
+  });
   try {
     if (values.once)
       console.log(JSON.stringify(await client.syncOnce(), null, 2));

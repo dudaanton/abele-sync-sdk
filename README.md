@@ -3,7 +3,13 @@
 TypeScript ESM packages for building applications on abele-sync. Requires Node.js 22 or newer.
 
 - `@abele/sync-sdk`: connection key parsing, one-shot and continuous synchronization.
-- `@abele/notes`: portable notes model (scaffold; API coming later).
+- `@abele/notes`: pure Markdown/task values and recurrence helpers.
+
+Application installation target: `npm install @abele/sync-sdk` (plus
+`@abele/notes` for note parsing). Use ESM imports; no CommonJS entry is provided.
+For a source checkout use `npm ci` and `npm run build`.
+See the [API guide](docs/README.md), [notes reference](packages/notes/README.md)
+and [reading notes example](examples/reading-notes/README.md).
 
 ## Development
 
@@ -57,7 +63,7 @@ error messages are generic to avoid exposing transport credentials. Changes come
 from its durable apply hook; crash replay can repeat notifications and delivery
 is not a durable queue. `readOnly` reflects the server connection permission.
 Pass `stateDir` alongside `dir` to keep credentials and the durable ledger outside
-the mirrored folder. It must be outside `dir`; reopening the same pair resumes
+the mirrored folder. It must be outside `dir` (or exactly the default state path); reopening the same pair resumes
 from its saved state. Reusing that state directory for another folder is refused
 with `ReplicaConfigurationError` (code `REPLICA_CONFIGURATION`). The default
 remains `dir/.abele-sync`. Client-side read-only policy is not implemented yet.
@@ -133,5 +139,10 @@ See `test/server/README.md` and `examples/folder-mirror/README.md` for details.
 
 ## Licence
 
-GPL-3.0-only; see LICENSE. Applications that distribute these packages must be GPL-compatible.
-Private server use is not distribution.
+GPL-3.0-only; see [LICENSE](LICENSE). When conveying these packages or a combined
+derivative application, comply with GPLv3, including applicable source, licence
+and notice obligations and GPL-compatible licensing of the combined work.
+Mere aggregation of independent programs is different from a combined work.
+Modifying and running a copy privately does not require publishing it. Network
+access alone does not trigger an AGPL-style source offer. Distribution to others
+does carry GPL obligations, even when private or commercial.
