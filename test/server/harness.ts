@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { randomBytes, randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 const exec = promisify(execFile);
 async function docker(...args: string[]) {
   // Never include provisioning output or environment secrets in errors.
@@ -13,6 +14,12 @@ async function docker(...args: string[]) {
   }
 }
 export async function startServer() {
+  const compat = JSON.parse(
+    await readFile(new URL("../../compat.json", import.meta.url), "utf8"),
+  );
+  const imageTag = process.env.ABELE_SYNC_IMAGE_TAG ?? compat.servers[0];
+  if (typeof imageTag !== "string" || !/^[\w][\w.-]{0,127}$/.test(imageTag))
+    throw new Error("Invalid server image tag");
   const name = "sync-sdk-test-" + randomUUID();
   let created = false;
   const close = async () => {
@@ -41,7 +48,7 @@ export async function startServer() {
       "ABELE_MASTER_KEY=" + randomBytes(32).toString("hex"),
       "-e",
       "ABELE_TOKEN_PEPPER=" + randomBytes(32).toString("hex"),
-      "ghcr.io/dudaanton/abele-sync:0.3.3",
+      "ghcr.io/dudaanton/abele-sync:" + imageTag,
     );
     created = true;
     const port = await docker("port", name, "8787/tcp");

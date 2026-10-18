@@ -16,6 +16,32 @@ jobs:
       - run: npm ci
       - run: npm run types
       - run: npm test
-      - run: npm run test:server
       - run: npm run check:core-pin
       - run: npm run smoke
+  compatibility:
+    runs-on: ubuntu-latest
+    outputs:
+      tags: ${{ steps.matrix.outputs.tags }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: matrix
+        run: echo "tags=$(jq -c '.servers' compat.json)" >> "$GITHUB_OUTPUT"
+  server:
+    needs: compatibility
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        tag: ${{ fromJSON(needs.compatibility.outputs.tags) }}
+    env:
+      ABELE_SYNC_IMAGE_TAG: ${{ matrix.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: mkdir -p .cache
+      - run: npm run test:server
