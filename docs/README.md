@@ -1,7 +1,7 @@
 # SDK API and operations
 
 Requires Node.js 22+ and ESM. SDK 0.1.0 pairs with core, node and protocol
-**0.3.3**, and server **0.3.3** in the tested matrix (`compat.json`). Protocol 2
+**0.4.0**, and server **0.3.3** in the tested matrix (`compat.json`). Protocol 2
 is required; its number alone does not guarantee compatibility with every server
 build. Keep all three core dependencies at the exact matching version.
 
@@ -52,8 +52,11 @@ An installation/import failure does not imply server incompatibility.
 Only one process may own a replica. Lock acquisition can wait to check a
 previous owner; do not delete a lock to force another writer. Await `close()` to
 release SQLite and locks. After interruption reopen the same state to recover
-journals and pending writes before normal syncing. If recovery refuses, preserve
-files and state for investigation. Back up both together while the client is closed.
+journals and pending writes before normal syncing. `RecoveryRequiredError` (code
+`RECOVERY_REQUIRED`) means recovery needs attention; its message contains no local
+paths or underlying error details. Reopen with the original state directory. If
+recovery refuses, preserve files and state for investigation. Back up both together
+while the client is closed.
 
 ## Synchronization and delivery
 

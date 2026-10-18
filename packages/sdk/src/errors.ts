@@ -1,8 +1,23 @@
 import { AbeleError, ErrorCodeSchema } from "@abele/sync-protocol";
-import { EngineError, HttpError } from "@abele/sync-core";
+import { EngineError, HttpError, ExternalStateError } from "@abele/sync-core";
+
+export class RecoveryRequiredError extends Error {
+  readonly code = "RECOVERY_REQUIRED";
+  constructor() {
+    super(
+      "Replica recovery required. Preserve files and state; reopen with the original state directory or seek recovery assistance.",
+    );
+    this.name = "RecoveryRequiredError";
+  }
+}
 
 /** Rebuild errors from classifications only; text, causes and details are untrusted. */
 export function safeError(error: unknown): Error {
+  if (
+    error instanceof ExternalStateError &&
+    error.reason === "recovery-required"
+  )
+    return new RecoveryRequiredError();
   if (error instanceof HttpError)
     return new HttpError(
       error.status,

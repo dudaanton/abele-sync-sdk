@@ -19,6 +19,7 @@ import { createReplica, type Replica } from "./replica.js";
 import { openReplica } from "./node-replica.js";
 import { ReplicaConfigurationError } from "./node-replica.js";
 import { safeError, safeFetch } from "./errors.js";
+export { RecoveryRequiredError } from "./errors.js";
 export { ReplicaConfigurationError } from "./node-replica.js";
 import { conflictEvents, type ConflictEvent } from "./conflicts.js";
 export type { ConflictEvent } from "./conflicts.js";

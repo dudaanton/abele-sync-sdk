@@ -1,7 +1,12 @@
 import { expect, it, vi } from "vitest";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { resolve, join } from "node:path";
-import { MemoryFileSystem, MemoryStateStore } from "@abele/sync-core";
+import {
+  MemoryFileSystem,
+  MemoryStateStore,
+  ExternalStateError,
+} from "@abele/sync-core";
 import { encodeAccessToken } from "@abele/sync-protocol";
 import {
   parseKey,
@@ -9,6 +14,7 @@ import {
   InvalidKey,
   IncompatibleServer,
   ReplicaConfigurationError,
+  RecoveryRequiredError,
 } from "../../packages/sdk/src/index.js";
 const token = {
   v: 1 as const,
@@ -17,6 +23,26 @@ const token = {
   scope: { kind: "folder" as const, id: "folder-id", path: "/" },
 };
 const key = encodeAccessToken(token);
+it("sanitizes a known recovery refusal without losing its classification", async () => {
+  const failure = new ExternalStateError("recovery-required", { cause: key });
+  failure.message = "private recovery path " + key;
+  {
+    const error = await open({
+      key,
+      dir: "unused",
+      transport: {
+        fetch: async () => {
+          throw failure;
+        },
+      },
+    }).catch((e) => e);
+    expect(error).toBeInstanceOf(RecoveryRequiredError);
+    expect(error.code).toBe("RECOVERY_REQUIRED");
+    expect(error.message).toContain("Preserve");
+    expect(error.message).not.toContain(key);
+    expect(error.cause).toBeUndefined();
+  }
+});
 class FakeSocket extends EventTarget {
   static instances: FakeSocket[] = [];
   constructor(_url: string | URL) {
@@ -70,6 +96,134 @@ it("supports lifecycle events and restart without leaking timers", async () => {
     await client.close();
     expect(vi.getTimerCount()).toBe(0);
     vi.useRealTimers();
+  }
+});
+
+it.each([undefined, "00000000-0000-4000-8000-000000000000"])(
+  "preserves unowned recovery evidence and exposes an actionable safe error (ledger=%s)",
+  async (ledger) => {
+    await mkdir(".cache", { recursive: true });
+    const root = await mkdtemp(resolve(".cache/recovery-"));
+    const dir = join(root, "replica"),
+      stateDir = join(root, "state");
+    try {
+      const client = await open({ key, dir, stateDir, transport: transport() });
+      await client.close();
+      const folder = join(
+        dir,
+        ".abele-sync",
+        "code-approvals",
+        "group-example",
+      );
+      await mkdir(folder, { recursive: true });
+      const journal = JSON.stringify({
+        version: 1,
+        vault: "space-id",
+        ...(ledger ? { ledger } : {}),
+        steps: [],
+        attempted: -1,
+      });
+      await writeFile(join(folder, "journal.json"), journal);
+      await writeFile(join(dir, "Example.md"), "keep user bytes");
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const error = await open({
+          key,
+          dir,
+          stateDir,
+          transport: transport(),
+        }).catch((e) => e);
+        expect(error).toBeInstanceOf(RecoveryRequiredError);
+        expect(error.code).toBe("RECOVERY_REQUIRED");
+        expect(error.message).toContain("Preserve");
+        expect(error.message).not.toContain(root);
+        expect(error.cause).toBeUndefined();
+        expect(await readFile(join(folder, "journal.json"), "utf8")).toBe(
+          journal,
+        );
+        expect(await readFile(join(dir, "Example.md"), "utf8")).toBe(
+          "keep user bytes",
+        );
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
+
+it("emits one real Node apply event, reopens external state, and disconnects safely", async () => {
+  await mkdir(".cache", { recursive: true });
+  const root = await mkdtemp(resolve(".cache/node-hooks-"));
+  const dir = join(root, "replica"),
+    stateDir = join(root, "state");
+  const bytes = "remote example\n";
+  const item = {
+    file_id: "file",
+    version_id: "version",
+    path: "Example.md",
+    kind: "note",
+    sha: createHash("sha256").update(bytes).digest("hex"),
+    size: Buffer.byteLength(bytes),
+    mtime: 1,
+  };
+  const wire = {
+    fetch: vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const path = new URL(String(input)).pathname;
+      if (path === "/capabilities") return Response.json({ protocol: 2 });
+      if (path === "/v2/connection") return Response.json(connection);
+      if (path === "/v2/manifest")
+        return Response.json({ items: [item], cursor: 1, next: null });
+      if (path === "/v2/changes")
+        return Response.json({ items: [], cursor: 1, next: null });
+      if (path === "/v2/files/file/content") {
+        const range = new Headers(init?.headers).get("range");
+        if (range) {
+          const match = /^bytes=(\d+)-(\d+)$/.exec(range)!;
+          const start = Number(match[1]),
+            end = Number(match[2]);
+          return new Response(Buffer.from(bytes).subarray(start, end + 1), {
+            status: 206,
+            headers: {
+              "content-range": `bytes ${start}-${end}/${Buffer.byteLength(bytes)}`,
+              "content-length": String(end - start + 1),
+            },
+          });
+        }
+        return new Response(bytes);
+      }
+      throw new Error("Unexpected route " + path);
+    }) as typeof fetch,
+  };
+  let client;
+  try {
+    client = await open({ key, dir, stateDir, transport: wire });
+    const change = vi.fn();
+    client.on("change", change);
+    await client.syncOnce();
+    expect(change.mock.calls).toEqual([
+      [
+        {
+          path: "Example.md",
+          kind: "upsert",
+          origin: "remote",
+          fileId: "file",
+        },
+      ],
+    ]);
+    await client.close();
+    client = await open({ key, dir, stateDir, transport: wire });
+    client.on("change", change);
+    await client.syncOnce();
+    expect(change).toHaveBeenCalledTimes(1);
+    expect(await client.replica.readText("Example.md")).toBe(bytes);
+    await client.disconnect();
+    expect(await readFile(join(dir, "Example.md"), "utf8")).toBe(bytes);
+    await expect(readFile(join(stateDir, "config.json"))).rejects.toMatchObject(
+      { code: "ENOENT" },
+    );
+    client = await open({ key, dir, stateDir, transport: wire });
+  } finally {
+    await client?.close();
+    await rm(root, { recursive: true, force: true });
   }
 });
 it("sanitizes failures and retries revoked connections only after resume", async () => {
