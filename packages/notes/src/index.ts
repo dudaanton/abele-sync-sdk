@@ -1,2 +1,14 @@
-// Public API will be introduced in a subsequent implementation task.
-export {};
+export { default as parseFrontmatter } from "./helpers/noteFrontmatter.js";
+export { default as dayjs } from "./helpers/dateLibrary.js";
+export type { Dayjs } from "./helpers/dateLibrary.js";
+export * from "./helpers/yamlDates.js";
+export * from "./helpers/RecurrenceParser.js";
+export * from "./helpers/taskMeta.js";
+export * from "./helpers/taskTree.js";
+export * from "./helpers/datesHelper.js";
+export * from "./helpers/pathsHelpers.js";
+export * from "./constants/colors.js";
+export * from "./constants/dates.js";
+export * from "./calendars/zones.js";
+export * from "./taskFromFrontmatter.js";
+export * from "./noteFromMarkdown.js";
