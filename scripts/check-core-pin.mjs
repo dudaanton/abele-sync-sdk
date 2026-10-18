@@ -1,6 +1,20 @@
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
+import { execFileSync } from "node:child_process";
 const names = ["@abele/sync-protocol", "@abele/sync-core", "@abele/sync-node"];
+export function validateCorePackages(version, packages) {
+  if (packages.length !== names.length)
+    throw Error("Expected three core packages");
+  for (const [index, manifest] of packages.entries()) {
+    if (manifest.name !== names[index] || manifest.version !== version)
+      throw Error("Unexpected packed core package: " + names[index]);
+    for (const name of names) {
+      const pin = manifest.dependencies?.[name];
+      if (pin !== undefined && pin !== version)
+        throw Error("Invalid packed dependency: " + name);
+    }
+  }
+}
 export function validateCorePins({ compat, manifests, lock }) {
   if (!/^\d+\.\d+\.\d+$/.test(compat.core)) throw Error("Invalid core version");
   for (const name of names) {
@@ -58,5 +72,25 @@ if (
   if (manifests.slice(1).some((m) => m.version !== compat.sdk))
     throw Error("SDK versions differ from compat.json");
   validateCorePins({ compat, manifests, lock: read("package-lock.json") });
+  validateCorePackages(
+    compat.core,
+    names.map((name) =>
+      JSON.parse(
+        execFileSync(
+          "tar",
+          [
+            "-xOf",
+            "vendor/" +
+              name.slice(1).replace("/", "-") +
+              "-" +
+              compat.core +
+              ".tgz",
+            "package/package.json",
+          ],
+          { encoding: "utf8" },
+        ),
+      ),
+    ),
+  );
   console.log("Core pins and lockfile match " + compat.core);
 }

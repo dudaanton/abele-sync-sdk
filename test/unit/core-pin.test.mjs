@@ -1,22 +1,45 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { validateCorePins } from "../../scripts/check-core-pin.mjs";
+import {
+  validateCorePins,
+  validateCorePackages,
+} from "../../scripts/check-core-pin.mjs";
 const names = ["@abele/sync-protocol", "@abele/sync-core", "@abele/sync-node"];
 const fixture = () => ({
-  compat: { core: "0.3.3" },
+  compat: { core: "0.4.0" },
   manifests: [
-    { dependencies: Object.fromEntries(names.map((n) => [n, "0.3.3"])) },
+    { dependencies: Object.fromEntries(names.map((n) => [n, "0.4.0"])) },
   ],
   lock: {
     packages: Object.fromEntries(
-      names.map((n) => [`node_modules/${n}`, { version: "0.3.3" }]),
+      names.map((n) => [`node_modules/${n}`, { version: "0.4.0" }]),
     ),
   },
+});
+test("checks actual packed names, versions, and internal pins", () => {
+  const packages = names.map((name) => ({
+    name,
+    version: "0.4.0",
+    dependencies: { "@abele/sync-protocol": "0.4.0" },
+  }));
+  assert.doesNotThrow(() => validateCorePackages("0.4.0", packages));
+  for (const change of [
+    { version: "0.3.3" },
+    { name: "unexpected" },
+    { dependencies: { "@abele/sync-protocol": "^0.4.0" } },
+  ]) {
+    assert.throws(() =>
+      validateCorePackages("0.4.0", [
+        { ...packages[0], ...change },
+        ...packages.slice(1),
+      ]),
+    );
+  }
 });
 test("accepts exact pins", () =>
   assert.doesNotThrow(() => validateCorePins(fixture())));
 test("rejects ranges and mismatches", () => {
-  for (const v of ["^0.3.3", "~0.3.3", "0.3.4"]) {
+  for (const v of ["^0.4.0", "~0.4.0", "0.3.4"]) {
     const f = fixture();
     f.manifests[0].dependencies[names[0]] = v;
     assert.throws(() => validateCorePins(f));
@@ -25,7 +48,7 @@ test("rejects ranges and mismatches", () => {
 test("rejects duplicates", () => {
   const f = fixture();
   f.lock.packages[`packages/sdk/node_modules/${names[0]}`] = {
-    version: "0.3.3",
+    version: "0.4.0",
   };
   assert.throws(() => validateCorePins(f));
 });
@@ -39,7 +62,7 @@ test("accepts versioned local tarballs", () => {
   f.manifests[0].name = "@abele/sync-sdk";
   for (const name of names)
     f.manifests[0].dependencies[name] =
-      `file:../../vendor/${name.slice(1).replace("/", "-")}-0.3.3.tgz`;
+      `file:../../vendor/${name.slice(1).replace("/", "-")}-0.4.0.tgz`;
   assert.doesNotThrow(() => validateCorePins(f));
 });
 test("rejects mismatched lock versions", () => {

@@ -27,8 +27,8 @@
     "vitest": "5.0.2"
   },
   "dependencies": {
-    "@abele/sync-core": "file:vendor/abele-sync-core-0.3.3.tgz",
-    "@abele/sync-node": "file:vendor/abele-sync-node-0.3.3.tgz",
-    "@abele/sync-protocol": "file:vendor/abele-sync-protocol-0.3.3.tgz"
+    "@abele/sync-core": "file:vendor/abele-sync-core-0.4.0.tgz",
+    "@abele/sync-node": "file:vendor/abele-sync-node-0.4.0.tgz",
+    "@abele/sync-protocol": "file:vendor/abele-sync-protocol-0.4.0.tgz"
   }
 }
