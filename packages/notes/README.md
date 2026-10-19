@@ -1,12 +1,12 @@
-# @abele/notes
+# @abele/sync-sdk/notes
 
 Pure task and Markdown note values, with no Obsidian or Node API imports.
 Requires Node.js 22+ for the supported package runtime and ESM imports.
-Installation target: `npm install @abele/notes`. In this workspace run `npm ci`
+Installation target: `npm install @abele/sync-sdk`. In this workspace run `npm ci`
 and `npm run build` first.
 
 ```ts
-import { noteFromMarkdown, taskFromFrontmatter } from "@abele/notes";
+import { noteFromMarkdown, taskFromFrontmatter } from "@abele/sync-sdk/notes";
 
 const task = taskFromFrontmatter(
   { date: "2026-04-03", dateTime: "09:45", topics: ["garden"] },
@@ -43,7 +43,7 @@ Options are evaluated when parsing; empty property names fall back to defaults.
 ## Recurrence and zones
 
 ```ts
-import { dayjs, RecurrenceParser } from "@abele/notes";
+import { dayjs, RecurrenceParser } from "@abele/sync-sdk/notes";
 
 const parser = new RecurrenceParser();
 const next = parser.getNextDate(dayjs("2026-04-03"), "every 3 days");

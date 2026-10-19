@@ -16,15 +16,12 @@ jobs:
           registry-url: https://registry.npmjs.org
           cache: npm
       - run: npm ci
-      - run: npm run types
+      - run: npm run build
       - run: npm test
       - run: npm run check:core-pin
       - run: npm run smoke
       - name: Verify release version and registry dependencies
         run: node scripts/check-release.mjs
-      - run: npm publish --workspace @abele/notes --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - run: npm publish --workspace @abele/sync-sdk --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

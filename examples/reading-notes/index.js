@@ -3,7 +3,7 @@ import { pathToFileURL } from "node:url";
 
 /** Read local Markdown values; this does not perform synchronization. */
 export async function readNotes(replica, prefix = "") {
-  const { noteFromMarkdown } = await import("@abele/notes");
+  const { noteFromMarkdown } = await import("@abele/sync-sdk/notes");
   const notes = [];
   for (const entry of await replica.list(prefix)) {
     if (!entry.path.endsWith(".md")) continue;

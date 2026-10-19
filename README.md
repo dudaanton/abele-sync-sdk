@@ -1,12 +1,11 @@
 # abele-sync SDK
 
-TypeScript ESM packages for building applications on abele-sync. Requires Node.js 22 or newer.
+A TypeScript ESM package for building applications on abele-sync. Requires Node.js 22 or newer.
 
 - `@abele/sync-sdk`: connection key parsing, one-shot and continuous synchronization.
-- `@abele/notes`: pure Markdown/task values and recurrence helpers.
+- `@abele/sync-sdk/notes`: pure Markdown/task values and recurrence helpers.
 
-Application installation target: `npm install @abele/sync-sdk` (plus
-`@abele/notes` for note parsing). Use ESM imports; no CommonJS entry is provided.
+Install `npm install @abele/sync-sdk`; the notes parser is included. Use ESM imports; no CommonJS entry is provided.
 For a source checkout use `npm ci` and `npm run build`.
 See the [API guide](docs/README.md), [notes reference](packages/notes/README.md)
 and [reading notes example](examples/reading-notes/README.md).
@@ -20,11 +19,11 @@ The npm configuration disables automatic peer installation to avoid an npm 10
 resolver crash with Vitest 5. Vite and Node types are pinned explicitly at the
 versions used by the upstream workspace.
 
-Core packages are temporarily pinned to tarballs in `vendor/` because they are not on npm yet.
+Core packages are pinned to development tarballs in `vendor/` and bundled inside the SDK at build time.
 To refresh from a built abele-sync checkout, run
 `npm run vendor:refresh -- /path/to/abele-sync`, then `npm install`.
-These dependencies must switch to exact npm version pins at the first release.
-The release workflow refuses to publish packages with file dependencies.
+Only `@abele/sync-sdk` is published. Its runtime dependencies are third-party packages;
+the core adapters and notes parser require no separate installation.
 
 ## Examples and documentation
 

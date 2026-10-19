@@ -9,7 +9,7 @@ node examples/reading-notes/index.js --key '<key>' --dir ./mirror --prefix Notes
 Optional `--state-dir ./private-state` keeps credentials and the ledger outside
 the mirror. `--help` works without connecting. This example runs one bidirectional
 sync, lists local Markdown through the public SDK, and parses it with
-`@abele/notes`. It prints one JSON record per note, with body and task values
+`@abele/sync-sdk/notes`. It prints one JSON record per note, with body and task values
 when frontmatter has `type: task`. It always closes the client in `finally`.
 Use a server read-only key when uploads must be prohibited.
 

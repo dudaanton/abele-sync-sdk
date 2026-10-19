@@ -20,7 +20,7 @@ try {
 Requires Node.js 22+ and ESM. SDK 0.1.0 pairs with core, node and protocol
 **0.4.0**, and server **0.3.3** in the tested matrix (`compat.json`). Protocol 2
 is required; its number alone does not guarantee compatibility with every server
-build. Keep all three core dependencies at the exact matching version.
+build. The matching core, Node adapters and protocol are bundled inside this package.
 
 ## Opening and adapters
 
@@ -171,3 +171,22 @@ application requires GPLv3 compliance, including applicable source, notice and
 licence obligations. Private modification and use do not require publication;
 network access alone creates no AGPL-style source offer. Distribution to others
 still carries GPL obligations, even when private or commercial.
+
+## Included notes parser and types
+
+The task and note parser is included:
+
+```js
+import { taskFromFrontmatter, noteFromMarkdown } from "@abele/sync-sdk/notes";
+const task = taskFromFrontmatter({ groups: ["work"] });
+```
+
+Use `@abele/sync-sdk/core` and `@abele/sync-sdk/protocol` for the core and
+protocol types referenced by the public SDK API, including adapter contracts
+and decoded connection tokens. No separate Abele packages are needed.
+
+The core, protocol and Node adapter code comes from
+[abele-sync v0.4.0](https://github.com/dudaanton/abele-sync/tree/v0.4.0).
+See NOTICE and the included upstream licences. The notes parser is built from
+this repository. Public YAML helper declarations require `@types/js-yaml`,
+which is included as a dependency.

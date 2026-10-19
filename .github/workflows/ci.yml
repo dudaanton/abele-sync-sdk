@@ -14,7 +14,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm run types
+      - run: npm run build
       - run: npm test
       - run: npm run check:core-pin
       - run: npm run smoke
