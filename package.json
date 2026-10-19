@@ -10,9 +10,9 @@
     "node": ">=22"
   },
   "scripts": {
-    "build": "tsc -b",
-    "types": "tsc -b",
-    "test": "vitest run --maxWorkers=2 && node --test test/unit/core-pin.test.mjs",
+    "build": "tsc -b && node scripts/bundle-internal.mjs",
+    "types": "npm run build",
+    "test": "vitest run --maxWorkers=2 && node --test test/unit/*.test.mjs",
     "check:core-pin": "node scripts/check-core-pin.mjs",
     "test:server": "vitest run --config vitest.server.config.ts --maxWorkers=2",
     "vendor:refresh": "node scripts/refresh-core.mjs",

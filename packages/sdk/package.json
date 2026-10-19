@@ -19,22 +19,48 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./notes": {
+      "types": "./dist/notes/index.d.ts",
+      "import": "./dist/notes/index.js"
+    },
+    "./core": {
+      "types": "./dist/internal/core/index.d.ts",
+      "import": "./dist/internal/core/index.js"
+    },
+    "./protocol": {
+      "types": "./dist/internal/protocol/index.d.ts",
+      "import": "./dist/internal/protocol/index.js"
     }
   },
   "types": "./dist/index.d.ts",
   "files": [
     "dist",
-    "LICENSE"
+    "LICENSE",
+    "README.md",
+    "NOTICE"
   ],
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
-    "build": "tsc -b"
+    "build": "tsc -b ../notes . && node ../../scripts/bundle-internal.mjs"
   },
   "dependencies": {
-    "@abele/sync-protocol": "file:../../vendor/abele-sync-protocol-0.4.0.tgz",
-    "@abele/sync-core": "file:../../vendor/abele-sync-core-0.4.0.tgz",
-    "@abele/sync-node": "file:../../vendor/abele-sync-node-0.4.0.tgz"
-  }
+    "zod": "3.25.76",
+    "yaml": "2.9.0",
+    "@noble/hashes": "1.8.0",
+    "better-sqlite3": "11.10.0",
+    "dayjs": "1.11.18",
+    "js-yaml": "4.3.2",
+    "@types/js-yaml": "4.0.9"
+  },
+  "description": "Node client SDK to sync a folder or your own storage with an Abele sync server by connection key, including a task and note parser.",
+  "keywords": [
+    "abele",
+    "sync",
+    "sdk",
+    "notes",
+    "tasks"
+  ]
 }
