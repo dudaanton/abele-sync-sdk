@@ -1,6 +1,21 @@
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { execFileSync } from "node:child_process";
+import { checkBundledDist } from "./bundle-internal.mjs";
+export function validatePublishedPackage(manifest) {
+  for (const section of [
+    "dependencies",
+    "devDependencies",
+    "peerDependencies",
+    "optionalDependencies",
+  ])
+    if (
+      Object.keys(manifest[section] ?? {}).some((name) =>
+        name.startsWith("@abele/"),
+      )
+    )
+      throw Error("Published package must not depend on @abele packages");
+}
 const names = ["@abele/sync-protocol", "@abele/sync-core", "@abele/sync-node"];
 export function validateCorePackages(version, packages) {
   if (packages.length !== names.length)
@@ -72,6 +87,9 @@ if (
   if (manifests.slice(1).some((m) => m.version !== compat.sdk))
     throw Error("SDK versions differ from compat.json");
   validateCorePins({ compat, manifests, lock: read("package-lock.json") });
+  validatePublishedPackage(manifests[1]);
+  if (manifests[2].private !== true) throw Error("Notes must remain private");
+  checkBundledDist("packages/sdk/dist");
   validateCorePackages(
     compat.core,
     names.map((name) =>

@@ -5,7 +5,10 @@ import {
   writeFileSync,
   rmSync,
   readFileSync,
+  cpSync,
 } from "node:fs";
+import { validatePublishedPackage } from "./check-core-pin.mjs";
+import { checkBundledDist } from "./bundle-internal.mjs";
 import { resolve } from "node:path";
 mkdirSync(".cache", { recursive: true });
 const scratch = mkdtempSync(resolve(".cache/smoke-"));
@@ -16,50 +19,66 @@ const run = (args, cwd = process.cwd()) =>
     env: { ...process.env, npm_config_cache: resolve(".cache/npm") },
   });
 try {
-  const dependencies = {};
-  for (const part of ["sdk", "notes"]) {
-    const result = JSON.parse(
-      run([
-        "pack",
-        "./packages/" + part,
-        "--json",
-        "--pack-destination",
-        scratch,
-      ]),
-    )[0];
-    if (
-      !result.files.some((f) => f.path === "dist/index.d.ts") ||
-      !result.files.some((f) => f.path === "LICENSE")
-    )
-      throw Error("Missing package artifacts");
-    dependencies[part === "sdk" ? "@abele/sync-sdk" : "@abele/notes"] =
-      "file:" + resolve(scratch, result.filename);
-  }
-  const overrides = {};
-  const { core } = JSON.parse(readFileSync("compat.json", "utf8"));
-  for (const part of ["protocol", "core", "node"]) {
-    const name = "@abele/sync-" + part;
-    overrides[name] =
-      "file:" + resolve("vendor/abele-sync-" + part + "-" + core + ".tgz");
-    dependencies[name] = overrides[name];
-  }
+  const result = JSON.parse(
+    run(["pack", "./packages/sdk", "--json", "--pack-destination", scratch]),
+  )[0];
+  for (const path of [
+    "dist/index.d.ts",
+    "dist/notes/index.d.ts",
+    "dist/internal/core/index.js",
+    "LICENSE",
+    "NOTICE",
+    "README.md",
+  ])
+    if (!result.files.some((f) => f.path === path))
+      throw Error("Missing package artifact: " + path);
   writeFileSync(
     resolve(scratch, "package.json"),
-    JSON.stringify({ private: true, type: "module", dependencies, overrides }),
+    JSON.stringify({
+      private: true,
+      type: "module",
+      dependencies: {
+        "@abele/sync-sdk": "file:" + resolve(scratch, result.filename),
+      },
+    }),
   );
-  run(["install", "--no-audit", "--no-fund"], scratch);
+  run(["install", "--ignore-scripts", "--no-audit", "--no-fund"], scratch);
+  const installed = resolve(scratch, "node_modules/@abele/sync-sdk");
+  validatePublishedPackage(
+    JSON.parse(readFileSync(resolve(installed, "package.json"), "utf8")),
+  );
+  checkBundledDist(resolve(installed, "dist"));
+  mkdirSync(resolve(scratch, "node_modules/better-sqlite3/build/Release"), {
+    recursive: true,
+  });
+  cpSync(
+    resolve("node_modules/better-sqlite3/build/Release/better_sqlite3.node"),
+    resolve(
+      scratch,
+      "node_modules/better-sqlite3/build/Release/better_sqlite3.node",
+    ),
+  );
+  console.log(
+    "Tarball: " +
+      result.entryCount +
+      " files, " +
+      result.size +
+      " bytes packed, " +
+      result.unpackedSize +
+      " bytes unpacked",
+  );
   execFileSync(
     process.execPath,
     [
       "--input-type=module",
       "-e",
-      "await import('@abele/sync-sdk'); await import('@abele/notes'); await import('@abele/sync-core'); await import('@abele/sync-node');",
+      "const { parseKey } = await import('@abele/sync-sdk'); const { taskFromFrontmatter } = await import('@abele/sync-sdk/notes'); const { encodeAccessToken } = await import('@abele/sync-sdk/protocol'); const token = { v: 1, address: 'http://localhost:8787', key: 'a'.repeat(43), scope: { kind: 'folder', id: 'folder-id', path: '/' } }; if (parseKey(encodeAccessToken(token)).scope.id !== 'folder-id' || taskFromFrontmatter({ groups: ['test'] }).groups[0] !== 'test') throw Error('API smoke failed');",
     ],
     { cwd: scratch, stdio: "inherit" },
   );
   writeFileSync(
     resolve(scratch, "check.ts"),
-    "import '@abele/sync-sdk';\nimport '@abele/notes';\n",
+    "import '@abele/sync-sdk';\nimport '@abele/sync-sdk/notes';\n",
   );
   execFileSync(
     process.execPath,
@@ -74,7 +93,7 @@ try {
     ],
     { cwd: scratch, stdio: "inherit" },
   );
-  console.log("Packed packages install and import successfully.");
+  console.log("Packed SDK installs and import successfully.");
 } finally {
   rmSync(scratch, { recursive: true, force: true });
 }
