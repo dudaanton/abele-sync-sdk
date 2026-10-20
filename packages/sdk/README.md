@@ -17,7 +17,7 @@ try {
 
 ## API and operations
 
-Requires Node.js 22+ and ESM. SDK 0.1.0 pairs with core, node and protocol
+Requires Node.js 22+ and ESM. SDK 0.1.1 pairs with core, node and protocol
 **0.4.0**, and server **0.3.3** in the tested matrix (`compat.json`). Protocol 2
 is required; its number alone does not guarantee compatibility with every server
 build. The matching core, Node adapters and protocol are bundled inside this package.
