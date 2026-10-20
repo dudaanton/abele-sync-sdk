@@ -1,7 +1,9 @@
 import {
   decodeAccessToken,
+  encodeAccessToken,
   V2ConnectionSchema,
   type V2AccessToken,
+  type V2Scope,
 } from "@abele/sync-protocol";
 import {
   SyncEngine,
@@ -19,6 +21,20 @@ import { createReplica, type Replica } from "./replica.js";
 import { openReplica } from "./node-replica.js";
 import { ReplicaConfigurationError } from "./node-replica.js";
 import { safeError, safeFetch } from "./errors.js";
+import { ItemClient } from "./items.js";
+export {
+  ItemClient,
+  type ScopeItem,
+  type ScopeItemsResponse,
+} from "./items.js";
+export { AccessClient, V2EngineClient } from "@abele/sync-core";
+export type { ClientOptions } from "@abele/sync-core";
+export type {
+  V2AccessToken,
+  V2Scope,
+  V2Selector,
+  V2Connection,
+} from "@abele/sync-protocol";
 export { RecoveryRequiredError } from "./errors.js";
 export { ReplicaConfigurationError } from "./node-replica.js";
 import { conflictEvents, type ConflictEvent } from "./conflicts.js";
@@ -65,6 +81,8 @@ type Adapters =
   | { files: FileSystem; state: StateStore; dir?: never; stateDir?: never };
 export type ConnectOptions = Adapters & {
   key: string;
+  /** Stable server item id; each item requires its own files and state. */
+  item?: string;
   transport?: { fetch?: typeof fetch; WebSocket?: typeof WebSocket };
   clock?: () => number;
   logger?: (line: string) => void;
@@ -75,7 +93,7 @@ export type ConnectOptions = Adapters & {
 };
 export interface SyncClient extends HistoryApi {
   readonly replica: Replica;
-  readonly scope: V2AccessToken["scope"];
+  readonly scope: V2Scope;
   readonly status: EngineStatus;
   readonly readOnly: boolean;
   syncOnce(): Promise<SyncReport>;
@@ -149,7 +167,28 @@ async function openClient(
   }
   if (capabilities?.protocol !== 2)
     throw new IncompatibleServer("Server must support protocol 2");
-  const transport = { fetch: fetcher, WebSocket: options.transport?.WebSocket };
+  if (
+    options.item !== undefined &&
+    !(await ItemClient.fromToken(options.key, {
+      fetch: fetcher,
+    }).supportsItems())
+  )
+    throw new IncompatibleServer("Server must support item sets");
+  // The node adapter creates additional clients during recovery. Carry selection
+  // in its transport too, so every request stays within the same item.
+  const selectedFetch: typeof fetch =
+    options.item === undefined
+      ? fetcher
+      : (input, init) => {
+          const headers = new Headers(init?.headers);
+          headers.set("abele-scope-item", options.item!);
+          return fetcher(input, { ...init, headers });
+        };
+  const transport = {
+    fetch: selectedFetch,
+    WebSocket: options.transport?.WebSocket,
+    item: options.item,
+  };
   const wire = new V2EngineClient(options.key, transport);
   let info;
   try {
@@ -175,11 +214,34 @@ async function openClient(
     const replica = await openReplica({
       dir: options.dir,
       stateDir: options.stateDir,
-      key: options.key,
+      // Persist the item in the adapter's connection identity, preventing reuse
+      // of one state directory for another item of the same key.
+      key:
+        options.item === undefined
+          ? options.key
+          : encodeAccessToken({
+              v: 2,
+              address: token.address,
+              key: token.key,
+              items: [
+                {
+                  id: options.item,
+                  kind: info.scope.kind,
+                  scope_id: info.scope.id,
+                  // Preview paths can change after a rename; identity cannot.
+                  // The selected connection supplies the current path on sync.
+                  path: "/",
+                },
+              ],
+            }),
       ...transport,
       defer: options.defer,
     });
     release = () => replica.close();
+    // The vendored Node adapter does not pass `item` to its internal client.
+    // HTTP recovery uses selectedFetch; socket hello must use the selected wire.
+    if (options.item !== undefined)
+      replica.client.subscribe = wire.subscribe.bind(wire);
     const { forgetNodeReplica } = await import("./historyNode.js");
     forget = async () => forgetNodeReplica(replica);
     files = replica.fs;

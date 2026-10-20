@@ -72,13 +72,13 @@ try {
     [
       "--input-type=module",
       "-e",
-      "const { parseKey } = await import('@abele/sync-sdk'); const { taskFromFrontmatter } = await import('@abele/sync-sdk/notes'); const { encodeAccessToken } = await import('@abele/sync-sdk/protocol'); const token = { v: 1, address: 'http://localhost:8787', key: 'a'.repeat(43), scope: { kind: 'folder', id: 'folder-id', path: '/' } }; if (parseKey(encodeAccessToken(token)).scope.id !== 'folder-id' || taskFromFrontmatter({ groups: ['test'] }).groups[0] !== 'test') throw Error('API smoke failed');",
+      "const { parseKey, ItemClient, AccessClient, V2EngineClient } = await import('@abele/sync-sdk'); const core = await import('@abele/sync-sdk/core'); const { taskFromFrontmatter } = await import('@abele/sync-sdk/notes'); const { encodeAccessToken, V2ScopeItemSchema, V2SetAccessTokenSchema } = await import('@abele/sync-sdk/protocol'); const token = { v: 1, address: 'http://localhost:8787', key: 'a'.repeat(43), scope: { kind: 'folder', id: 'folder-id', path: '/' } }; if (parseKey(encodeAccessToken(token)).scope.id !== 'folder-id' || taskFromFrontmatter({ groups: ['test'] }).groups[0] !== 'test' || typeof ItemClient.fromToken !== 'function' || AccessClient !== core.AccessClient || V2EngineClient !== core.V2EngineClient || !V2ScopeItemSchema || !V2SetAccessTokenSchema) throw Error('API smoke failed'); const set = { v: 2, address: token.address, key: token.key, items: [{ id: 'item-id', kind: 'file', scope_id: 'file-id', path: 'Note.md' }] }; if (parseKey(encodeAccessToken(set)).v !== 2) throw Error('v2 payload smoke failed');",
     ],
     { cwd: scratch, stdio: "inherit" },
   );
   writeFileSync(
     resolve(scratch, "check.ts"),
-    "import '@abele/sync-sdk';\nimport '@abele/sync-sdk/notes';\n",
+    "import { ItemClient, type ScopeItem, type ScopeItemsResponse, type V2AccessToken, type V2Scope, type V2Selector, type V2Connection, type ConnectOptions } from '@abele/sync-sdk';\nimport { V2EngineClient, type ClientOptions } from '@abele/sync-sdk/core';\nimport { V2SetAccessTokenSchema, V2ScopeItemSchema } from '@abele/sync-sdk/protocol';\nimport '@abele/sync-sdk/notes';\nconst options: Pick<ClientOptions, 'item'> = { item: 'item-id' };\nconst connect: Pick<ConnectOptions, 'item'> = options;\n",
   );
   execFileSync(
     process.execPath,

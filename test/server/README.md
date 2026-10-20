@@ -19,12 +19,18 @@ temporary replica directories on both success and failure.
 
 The tag comes from `ABELE_SYNC_IMAGE_TAG`, defaulting to the first `servers`
 entry in the root `compat.json`. CI runs each listed tag in an independent
-Ubuntu Docker job. Only protocol 2 is supported; the current list is `0.3.3`.
+Ubuntu Docker job. Only protocol 2 is supported; the targets are `0.3.3` and `0.5.0`.
 To add a tag, first run `docker manifest inspect ghcr.io/dudaanton/abele-sync:<tag>`,
 confirm `/capabilities` advertises protocol 2, then run
 `ABELE_SYNC_IMAGE_TAG=<tag> npm run test:server` with Docker available. Add the
-tag to `compat.json` only after the full server suite passes. An image manifest
-alone does not establish protocol compatibility.
+An image manifest alone does not establish protocol compatibility. For a local
+source build, set `ABELE_SYNC_IMAGE_ID=sha256:<64 hex digits>` alongside
+`ABELE_SYNC_IMAGE_TAG=0.5.0`. The id selects the local image while the tag selects
+the expected feature contract; the harness never builds, tags or publishes images.
+
+`items.test.ts` tests legacy-key sync and inventory capability detection on both
+targets. On the 0.5.0 job it also tests add/list/remove, selected-item sync,
+per-item deletion and retry, and preservation of a sibling file.
 
 The tests cover bidirectional convergence with Memory adapters and Node folder
 replicas, socket delivery before fallback polling, and admin CLI revocation with

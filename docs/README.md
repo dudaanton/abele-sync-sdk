@@ -1,18 +1,18 @@
 # SDK API and operations
 
-Requires Node.js 22+ and ESM. SDK 0.1.1 pairs with core, node and protocol
-**0.4.0**, and server **0.3.3** in the tested matrix (`compat.json`). Protocol 2
+Requires Node.js 22+ and ESM. SDK 0.2.0 pairs with core, node and protocol
+**0.5.0**, with server targets **0.3.3** and **0.5.0** (`compat.json`). Protocol 2
 is required; its number alone does not guarantee compatibility with every server
 build. The matching core, Node adapters and protocol are bundled inside this package.
 
 ## Opening and adapters
 
 `parseKey(key)` validates and decodes locally without network access. Its result
-contains the token address and scope; treat it as a credential.
+contains the token address and either a legacy scope or v2 item previews; treat it as a credential.
 `open(options)` checks capabilities and the active connection, then opens local
 state and completes recovery. Call `syncOnce()` explicitly for current server data.
 
-`client.scope` reports the server connection's folder or group scope. Paths are
+`client.scope` reports the server connection's folder, group or file scope. Paths are
 relative to that projected replica. There is no SDK group management API.
 `client.readOnly` reports server permission; there is no local read-only option.
 Incoming sync can still write local files. Use server permissions to prevent uploads.
@@ -28,6 +28,61 @@ Optional `transport.fetch` and `transport.WebSocket` replace Node globals.
 lock/recovery clocks. `logger: (line: string) => void` receives generic activity
 notices. `backoffMs: [min, max]` and `fallbackMs` configure retry and periodic
 sync delays in milliseconds. `deleteGuard` and `defer` control decisions below.
+
+## Item sets (server 0.5.0)
+
+```ts
+import { ItemClient, AccessClient, open } from "@abele/sync-sdk";
+
+const owner = ItemClient.fromToken(ownerKey, { fetch });
+if (await owner.supportsItems()) {
+  const added = await owner.addItem(targetTokenId, {
+    kind: "file",
+    id: fileId,
+  });
+  const recipient = ItemClient.fromToken(recipientKey, { fetch });
+  const inventory = await recipient.items();
+  const client = await open({
+    key: recipientKey,
+    item: added.id,
+    files,
+    state,
+  });
+  try {
+    await client.syncOnce();
+  } finally {
+    await client.close();
+  }
+  await owner.removeItem(targetTokenId, added.id); // detach access, keep content
+}
+```
+
+`items()` lists the calling key's items, including removed entries. The issuer or
+whole-vault owner uses `addItem(tokenId, selector)` and
+`removeItem(tokenId, itemId)` to manage a target key. Selectors support `folder`,
+`group` and `file`; their ids identify server objects, not paths. Use
+`AccessClient.fromToken(key, { fetch })` to issue/list/revoke keys and
+`V2EngineClient` from the root or `./core` for lower-level engine operations.
+
+`deleteItem(itemId, idempotencyKey)` deletes the selected item's server content
+under server ownership checks. It can target an owned recipient key's item.
+Persist and reuse the same idempotency key when retrying this destructive operation.
+Removing access and deleting content are separate operations.
+
+`supportsItems()` probes the authenticated inventory route because the server
+does not advertise an item capability flag. It returns false on 404 and throws
+on authentication, connectivity, malformed-response and other server errors.
+Server 0.3.3 supports legacy keys only. `open({ item })` checks item support
+before opening a content connection; omitting `item` preserves primary-scope behavior.
+Each item needs separate files and state. Node replicas persist selection in their
+connection identity and refuse switching items in an existing state directory.
+
+`parseKey` accepts legacy payload v1 (`scope`) and payload v2 (`items` previews).
+Use the union's `v` field to narrow it. Previews are hints; the server connection
+and inventory provide current authority. `./protocol` exports the v2 token,
+item, selector, connection and deletion schemas and existing payload types;
+the root also exports `ScopeItem`, `ScopeItemsResponse`, `V2AccessToken`,
+`V2Scope`, `V2Selector`, `V2Connection` and the core `ClientOptions` type.
 
 ## State, locks and recovery
 

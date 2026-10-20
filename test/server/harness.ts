@@ -20,6 +20,9 @@ export async function startServer() {
   const imageTag = process.env.ABELE_SYNC_IMAGE_TAG ?? compat.servers[0];
   if (typeof imageTag !== "string" || !/^[\w][\w.-]{0,127}$/.test(imageTag))
     throw new Error("Invalid server image tag");
+  const imageId = process.env.ABELE_SYNC_IMAGE_ID;
+  if (imageId !== undefined && !/^sha256:[a-f0-9]{64}$/.test(imageId))
+    throw new Error("Invalid local server image id");
   const name = "sync-sdk-test-" + randomUUID();
   let created = false;
   const close = async () => {
@@ -48,7 +51,7 @@ export async function startServer() {
       "ABELE_MASTER_KEY=" + randomBytes(32).toString("hex"),
       "-e",
       "ABELE_TOKEN_PEPPER=" + randomBytes(32).toString("hex"),
-      "ghcr.io/dudaanton/abele-sync:" + imageTag,
+      imageId ?? "ghcr.io/dudaanton/abele-sync:" + imageTag,
     );
     created = true;
     const port = await docker("port", name, "8787/tcp");
