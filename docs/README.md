@@ -57,7 +57,12 @@ if (await owner.supportsItems()) {
 }
 ```
 
-`items()` lists the calling key's items, including removed entries. The issuer or
+`items()` lists the calling key's items, including removed entries.
+`ItemClient.tokenItems(tokenId)` and `AccessClient.tokenItems(tokenId)` list an
+owned key's items without its recipient secret. `AccessClient.tokens()` includes
+optional `item_count` values when supported; older servers omit them.
+`./protocol` exports `V2TokenItemsResponseSchema` and `V2TokenItemsResponse`
+for owner inventory responses. The issuer or
 whole-vault owner uses `addItem(tokenId, selector)` and
 `removeItem(tokenId, itemId)` to manage a target key. Selectors support `folder`,
 `group` and `file`; their ids identify server objects, not paths. Use

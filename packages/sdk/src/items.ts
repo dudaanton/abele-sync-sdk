@@ -4,6 +4,7 @@ import {
   V2AddScopeItemRequestSchema,
   V2ScopeItemSchema,
   V2ScopeItemsResponseSchema,
+  V2TokenItemsResponseSchema,
   V2RemoveScopeItemResponseSchema,
   V2DeleteScopeResponseSchema,
   V2_CAPABILITIES_HEADER,
@@ -89,6 +90,15 @@ export class ItemClient {
       V2ScopeItemsResponseSchema,
       "GET",
       "/v2/connection/items",
+    );
+  }
+
+  /** Inventory of an owned key, without needing the recipient's secret. */
+  tokenItems(tokenId: string): Promise<ScopeItemsResponse> {
+    return this.request(
+      V2TokenItemsResponseSchema,
+      "GET",
+      `/v2/tokens/${encodeURIComponent(tokenId)}/items`,
     );
   }
 

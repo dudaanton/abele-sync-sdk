@@ -32,6 +32,14 @@ it("keeps legacy keys working and negotiates item support", async () => {
       fetch,
     }).supportsItems();
     expect(supported).toBe(process.env.ABELE_SYNC_IMAGE_TAG === "0.5.0");
+    const tokens = await AccessClient.fromToken(server.keys[0], {
+      fetch,
+    }).tokens();
+    expect(tokens.items.length).toBeGreaterThan(0);
+    for (const token of tokens.items) {
+      if (supported) expect(token.item_count).toBe(1);
+      else expect(token.item_count).toBeUndefined();
+    }
   } finally {
     try {
       await client?.close();
@@ -79,6 +87,19 @@ it.runIf(process.env.ABELE_SYNC_IMAGE_TAG === "0.5.0")(
         id: second.file_id,
       });
       expect((await recipient.items()).items).toHaveLength(2);
+      const inventory = await owner.tokenItems(shared.info.id);
+      expect(inventory).toEqual(await recipient.items());
+      expect(await access.tokenItems(shared.info.id)).toEqual(inventory);
+      expect(
+        (await access.tokens()).items.find(
+          (token) => token.id === shared.info.id,
+        )?.item_count,
+      ).toBe(2);
+      await expect(
+        AccessClient.fromToken(shared.token, { fetch }).tokenItems(
+          shared.info.id,
+        ),
+      ).rejects.toThrow();
       const target = new MemoryFileSystem();
       clients.push(
         await open({
@@ -95,6 +116,16 @@ it.runIf(process.env.ABELE_SYNC_IMAGE_TAG === "0.5.0")(
       expect(await target.stat("First.md")).toBeNull();
       await clients[1].close();
       await owner.removeItem(shared.info.id, added.id);
+      expect(
+        (await owner.tokenItems(shared.info.id)).items.find(
+          (item) => item.id === added.id,
+        )?.removed_at,
+      ).not.toBeNull();
+      expect(
+        (await access.tokens()).items.find(
+          (token) => token.id === shared.info.id,
+        )?.item_count,
+      ).toBe(1);
       expect(
         (await recipient.items()).items.find((item) => item.id === added.id)
           ?.removed_at,

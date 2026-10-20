@@ -16,6 +16,22 @@ const item = {
   added_at: "2026-10-20T00:00:00Z",
   removed_at: null,
 };
+it("lists an owned key's items through both SDK clients", async () => {
+  const fetcher = vi.fn(async (input) => {
+    expect(new URL(String(input)).pathname).toBe("/v2/tokens/token%2Fid/items");
+    return Response.json({ items: [item] });
+  }) as typeof fetch;
+  expect(
+    await sdk.ItemClient.fromToken(key, { fetch: fetcher }).tokenItems(
+      "token/id",
+    ),
+  ).toEqual({ items: [item] });
+  expect(
+    await sdk.AccessClient.fromToken(key, { fetch: fetcher }).tokenItems(
+      "token/id",
+    ),
+  ).toEqual({ items: [item] });
+});
 it("exports item management with validated payloads and encoded routes", async () => {
   expect(sdk).toHaveProperty("ItemClient");
   const fetcher = vi.fn(async (input, init) => {
