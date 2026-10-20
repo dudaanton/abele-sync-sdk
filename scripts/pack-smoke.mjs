@@ -80,6 +80,19 @@ try {
     resolve(scratch, "check.ts"),
     "import { ItemClient, AccessClient, type ScopeItem, type ScopeItemsResponse, type V2AccessToken, type V2Scope, type V2Selector, type V2Connection, type ConnectOptions } from '@abele/sync-sdk';\nimport { V2EngineClient, type ClientOptions } from '@abele/sync-sdk/core';\nimport { V2SetAccessTokenSchema, V2ScopeItemSchema, V2TokenItemsResponseSchema, type V2TokenItemsResponse } from '@abele/sync-sdk/protocol';\nimport '@abele/sync-sdk/notes';\nconst options: Pick<ClientOptions, 'item'> = { item: 'item-id' };\nconst connect: Pick<ConnectOptions, 'item'> = options;\nconst ownerItems: (id: string) => Promise<V2TokenItemsResponse> = ItemClient.fromToken('', { fetch }).tokenItems;\nconst accessItems: (id: string) => Promise<V2TokenItemsResponse> = AccessClient.fromToken('', { fetch }).tokenItems;\nV2TokenItemsResponseSchema.parse({ items: [] });\n",
   );
+  writeFileSync(
+    resolve(scratch, "preview.ts"),
+    `
+import { ItemClient, AccessClient } from '@abele/sync-sdk';
+import { V2ItemContentPreviewSchema, V2TokenContentPreviewSchema, V2ContentPreviewQuerySchema,
+  V2_PREVIEW_FILE_LIMIT, V2_PREVIEW_OVERLAP_LIMIT,
+  type V2ItemContentPreview, type V2TokenContentPreview } from '@abele/sync-sdk/protocol';
+const item: (id: string, item: string, options?: { limit?: number }) => Promise<V2ItemContentPreview> = ItemClient.prototype.previewTokenItem;
+const token: (id: string, options?: { limit?: number }) => Promise<V2TokenContentPreview> = ItemClient.prototype.previewToken;
+const coreItem: typeof item = AccessClient.prototype.previewTokenItem;
+const coreToken: typeof token = AccessClient.prototype.previewToken;
+`,
+  );
   execFileSync(
     process.execPath,
     [
@@ -90,6 +103,7 @@ try {
       "--target",
       "ES2022",
       "check.ts",
+      "preview.ts",
     ],
     { cwd: scratch, stdio: "inherit" },
   );

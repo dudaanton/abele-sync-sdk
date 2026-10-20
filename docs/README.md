@@ -62,7 +62,18 @@ if (await owner.supportsItems()) {
 owned key's items without its recipient secret. `AccessClient.tokens()` includes
 optional `item_count` values when supported; older servers omit them.
 `./protocol` exports `V2TokenItemsResponseSchema` and `V2TokenItemsResponse`
-for owner inventory responses. The issuer or
+for owner inventory responses.
+
+Both clients expose `previewTokenItem(tokenId, itemId, { limit? })` and
+`previewToken(tokenId, { limit? })` for owner-authorized deletion impact previews.
+They return full file/byte totals, capped file paths and group cross-token overlaps;
+file/folder previews have empty overlap lists. Key totals deduplicate files across items. The optional file limit defaults to
+100 and is capped at 500; overlap lists are capped at 20. These are read-only
+previews, not deletion authorization or a snapshot guarantee. `./protocol` exports
+`V2ContentPreviewQuerySchema`, `V2ItemContentPreviewSchema`,
+`V2TokenContentPreviewSchema`, their response types `V2ItemContentPreview` and
+`V2TokenContentPreview`, and the `V2_PREVIEW_FILE_LIMIT` and
+`V2_PREVIEW_OVERLAP_LIMIT` constants. The issuer or
 whole-vault owner uses `addItem(tokenId, selector)` and
 `removeItem(tokenId, itemId)` to manage a target key. Selectors support `folder`,
 `group` and `file`; their ids identify server objects, not paths. Use

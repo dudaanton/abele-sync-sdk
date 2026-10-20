@@ -90,6 +90,54 @@ it.runIf(process.env.ABELE_SYNC_IMAGE_TAG === "0.5.0")(
       const inventory = await owner.tokenItems(shared.info.id);
       expect(inventory).toEqual(await recipient.items());
       expect(await access.tokenItems(shared.info.id)).toEqual(inventory);
+      const preview = await owner.previewTokenItem(shared.info.id, added.id, {
+        limit: 1,
+      });
+      expect(preview.file_count).toBe(1);
+      expect(preview.total_bytes).toBe(
+        new TextEncoder().encode("Second.md").length,
+      );
+      expect(preview.files).toHaveLength(1);
+      expect(preview.files[0].path).toBe("Second.md");
+      // The server reports overlap details for groups only.
+      expect(preview.files[0].overlap_count).toBe(0);
+      expect(preview.files[0].overlaps).toEqual([]);
+      expect(
+        await access.previewTokenItem(shared.info.id, added.id, { limit: 1 }),
+      ).toEqual(preview);
+      const allPreview = await owner.previewToken(shared.info.id, { limit: 1 });
+      expect(allPreview.file_count).toBe(2);
+      expect(allPreview.total_bytes).toBe(17);
+      expect(allPreview.items).toHaveLength(2);
+      expect(await access.previewToken(shared.info.id, { limit: 1 })).toEqual(
+        allPreview,
+      );
+      await expect(
+        AccessClient.fromToken(shared.token, { fetch }).previewToken(
+          shared.info.id,
+        ),
+      ).rejects.toThrow();
+      const capped = await access.previewToken(
+        (await access.connection()).token_id,
+        { limit: 1 },
+      );
+      expect(capped.file_count).toBe(2);
+      expect(capped.items[0].files).toHaveLength(1);
+      expect(capped.total_bytes).toBe(17);
+      const group = await access.issue({
+        label: "group preview",
+        scope: { kind: "group", id: first.file_id },
+      });
+      const groupPreview = await owner.previewTokenItem(
+        group.info.id,
+        `primary:${group.info.id}`,
+        { limit: 1 },
+      );
+      expect(groupPreview.files[0].path).toBe("First.md");
+      expect(groupPreview.files[0].overlap_count).toBeGreaterThan(0);
+      expect(groupPreview.files[0].overlaps).toContainEqual(
+        expect.objectContaining({ token_id: shared.info.id }),
+      );
       expect(
         (await access.tokens()).items.find(
           (token) => token.id === shared.info.id,

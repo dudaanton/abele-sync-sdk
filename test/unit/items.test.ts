@@ -16,6 +16,46 @@ const item = {
   added_at: "2026-10-20T00:00:00Z",
   removed_at: null,
 };
+it("previews owned items and keys through both clients with bounded queries", async () => {
+  const preview = {
+    ...item,
+    status: "active",
+    file_count: 2,
+    total_bytes: 42,
+    files: [],
+  };
+  const fetcher = vi.fn(async (input) => {
+    const url = new URL(String(input));
+    expect(url.searchParams.get("limit")).toBe("1");
+    expect(url.pathname).toMatch(
+      /^\/v2\/tokens\/token%2Fid\/(items\/item%2Fone\/)?preview$/,
+    );
+    return Response.json(
+      url.pathname.includes("/items/")
+        ? preview
+        : {
+            token_id: "token/id",
+            file_count: 2,
+            total_bytes: 42,
+            items: [preview],
+          },
+    );
+  }) as typeof fetch;
+  for (const Client of [sdk.ItemClient, sdk.AccessClient]) {
+    const client = Client.fromToken(key, { fetch: fetcher });
+    expect(
+      await client.previewTokenItem("token/id", item.id, { limit: 1 }),
+    ).toEqual(preview);
+    expect(
+      (await client.previewToken("token/id", { limit: 1 })).total_bytes,
+    ).toBe(42);
+    const calls = fetcher.mock.calls.length;
+    await expect(async () =>
+      client.previewToken("token/id", { limit: 501 }),
+    ).rejects.toThrow();
+    expect(fetcher.mock.calls).toHaveLength(calls);
+  }
+});
 it("lists an owned key's items through both SDK clients", async () => {
   const fetcher = vi.fn(async (input) => {
     expect(new URL(String(input)).pathname).toBe("/v2/tokens/token%2Fid/items");

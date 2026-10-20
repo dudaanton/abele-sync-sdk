@@ -5,6 +5,9 @@ import {
   V2ScopeItemSchema,
   V2ScopeItemsResponseSchema,
   V2TokenItemsResponseSchema,
+  V2ItemContentPreviewSchema,
+  V2TokenContentPreviewSchema,
+  V2ContentPreviewQuerySchema,
   V2RemoveScopeItemResponseSchema,
   V2DeleteScopeResponseSchema,
   V2_CAPABILITIES_HEADER,
@@ -99,6 +102,30 @@ export class ItemClient {
       V2TokenItemsResponseSchema,
       "GET",
       `/v2/tokens/${encodeURIComponent(tokenId)}/items`,
+    );
+  }
+
+  /** Read-only deletion impact preview for one owned item. */
+  async previewTokenItem(
+    tokenId: string,
+    itemId: string,
+    options: { limit?: number } = {},
+  ) {
+    const { limit } = V2ContentPreviewQuerySchema.parse(options);
+    return this.request(
+      V2ItemContentPreviewSchema,
+      "GET",
+      `/v2/tokens/${encodeURIComponent(tokenId)}/items/${encodeURIComponent(itemId)}/preview?limit=${limit}`,
+    );
+  }
+
+  /** Read-only deletion impact preview for an owned key, with deduplicated totals. */
+  async previewToken(tokenId: string, options: { limit?: number } = {}) {
+    const { limit } = V2ContentPreviewQuerySchema.parse(options);
+    return this.request(
+      V2TokenContentPreviewSchema,
+      "GET",
+      `/v2/tokens/${encodeURIComponent(tokenId)}/preview?limit=${limit}`,
     );
   }
 
