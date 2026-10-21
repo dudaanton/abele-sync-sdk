@@ -1,4 +1,5 @@
-Includes protocol, core and Node adapters from abele-sync v0.4.0
-https://github.com/dudaanton/abele-sync/tree/v0.4.0
+Includes protocol, core and Node adapters from abele-sync private packages 0.5.0
+Source checkout used for the refresh and server compatibility tests: c8362ff
+https://github.com/dudaanton/abele-sync/tree/c8362ff
 Copyright holders and GPL-3.0-only terms are preserved in the copied LICENSE files.
 Includes the notes parser from this repository, under GPL-3.0-only.
