@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   decodeAccessToken,
+  AbeleError,
   V2AddScopeItemRequestSchema,
   V2ScopeItemSchema,
   V2ScopeItemsResponseSchema,
@@ -62,6 +63,8 @@ export class ItemClient {
       });
       if (!response.ok) {
         void response.body?.cancel().catch(() => {});
+        if (response.status === 403)
+          throw new AbeleError("forbidden", "Item access refused");
         throw new HttpError(
           response.status,
           response.status === 401 ? "unauthorized" : "protocol",

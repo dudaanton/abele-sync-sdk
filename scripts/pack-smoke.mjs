@@ -80,6 +80,25 @@ try {
     resolve(scratch, "check.ts"),
     "import { ItemClient, AccessClient, type ScopeItem, type ScopeItemsResponse, type V2AccessToken, type V2Scope, type V2Selector, type V2Connection, type ConnectOptions } from '@abele/sync-sdk';\nimport { V2EngineClient, type ClientOptions } from '@abele/sync-sdk/core';\nimport { V2SetAccessTokenSchema, V2ScopeItemSchema, V2TokenItemsResponseSchema, type V2TokenItemsResponse } from '@abele/sync-sdk/protocol';\nimport '@abele/sync-sdk/notes';\nconst options: Pick<ClientOptions, 'item'> = { item: 'item-id' };\nconst connect: Pick<ConnectOptions, 'item'> = options;\nconst ownerItems: (id: string) => Promise<V2TokenItemsResponse> = ItemClient.fromToken('', { fetch }).tokenItems;\nconst accessItems: (id: string) => Promise<V2TokenItemsResponse> = AccessClient.fromToken('', { fetch }).tokenItems;\nV2TokenItemsResponseSchema.parse({ items: [] });\n",
   );
+  execFileSync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "-e",
+      `
+const { ItemClient, AbeleError, HttpError } = await import('@abele/sync-sdk');
+const { encodeAccessToken, V2ItemContentPreviewSchema } = await import('@abele/sync-sdk/protocol');
+if (typeof HttpError !== 'function') throw Error('Missing typed HTTP error');
+const key = encodeAccessToken({ v: 1, address: 'http://localhost:8787', key: 'a'.repeat(43), scope: { kind: 'folder', id: 'root', path: '/' } });
+const client = ItemClient.fromToken(key, { fetch: async () => new Response(null, { status: 403 }) });
+try { await client.previewTokenItem('token', 'hidden'); throw Error('Expected refusal'); }
+catch (error) { if (!(error instanceof AbeleError) || error.code !== 'forbidden' || error.status !== 403) throw error; }
+const preview = V2ItemContentPreviewSchema.parse({ id: 'item', scope_id: 'scope', scope: { kind: 'group', id: 'group', path: 'G.md' }, added_at: '2026-10-21T00:00:00Z', removed_at: null, status: 'active', file_count: 1, total_bytes: 1, files: [{ file_id: 'file', path: 'G.md', bytes: 1, overlap_count: 3, overlaps: [] }] });
+if (preview.files[0].overlap_count !== 3 || preview.files[0].overlaps.length !== 0) throw Error('Invalid overlap disclosure');
+`,
+    ],
+    { cwd: scratch, stdio: "inherit" },
+  );
   writeFileSync(
     resolve(scratch, "preview.ts"),
     `

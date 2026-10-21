@@ -16,6 +16,39 @@ const item = {
   added_at: "2026-10-20T00:00:00Z",
   removed_at: null,
 };
+it("surfaces forbidden item previews as a typed forbidden error", async () => {
+  const client = sdk.ItemClient.fromToken(key, {
+    fetch: async () => new Response("private details", { status: 403 }),
+  });
+  const error = await client
+    .previewTokenItem("token", "hidden")
+    .catch((error) => error);
+  expect(error).toBeInstanceOf(sdk.AbeleError);
+  expect(error).toMatchObject({ code: "forbidden", status: 403 });
+  expect(error.message).not.toContain("private details");
+});
+it("accepts count-only overlap disclosure without inventing identifiers", async () => {
+  const preview = {
+    ...item,
+    status: "active",
+    file_count: 1,
+    total_bytes: 1,
+    files: [
+      {
+        file_id: "visible",
+        path: "Visible.md",
+        bytes: 1,
+        overlap_count: 3,
+        overlaps: [],
+      },
+    ],
+  };
+  expect(
+    await sdk.ItemClient.fromToken(key, {
+      fetch: async () => Response.json(preview),
+    }).previewTokenItem("token", item.id),
+  ).toEqual(preview);
+});
 it("previews owned items and keys through both clients with bounded queries", async () => {
   const preview = {
     ...item,

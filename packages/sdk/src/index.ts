@@ -28,6 +28,8 @@ export {
   type ScopeItemsResponse,
 } from "./items.js";
 export { AccessClient, V2EngineClient } from "@abele/sync-core";
+export { AbeleError } from "@abele/sync-protocol";
+export { HttpError } from "@abele/sync-core";
 export type { ClientOptions } from "@abele/sync-core";
 export type {
   V2AccessToken,

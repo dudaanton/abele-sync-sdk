@@ -81,6 +81,20 @@ optional `item_count` values when supported; older servers omit them.
 `./protocol` exports `V2TokenItemsResponseSchema` and `V2TokenItemsResponse`
 for owner inventory responses.
 
+Item inventory, previews, totals and item counts are filtered to caller coverage.
+Hidden child items are omitted; directly previewing one returns HTTP 403.
+Group `overlap_count` includes undisclosed shares, so it may exceed
+`overlaps.length` even below the response cap. Undisclosed overlaps have no
+array entry, path or identifier; do not infer absence from an empty array.
+The overlap-detail schema is unchanged: disclosed entries still have all fields.
+`ItemClient` surfaces 403 as `AbeleError` with `code: "forbidden"` and
+`status: 403`, matching server error envelopes from `AccessClient`. Both
+`AbeleError` and `HttpError` are exported at the SDK root (a non-envelope
+AccessClient refusal can be `HttpError` with `status: 403`).
+This changes ItemClient 403 handling from HttpError/protocol to AbeleError/forbidden.
+Consumers must handle omitted items and partial totals without treating them
+as complete key inventory or vault-wide deletion impact.
+
 Both clients expose `previewTokenItem(tokenId, itemId, { limit? })` and
 `previewToken(tokenId, { limit? })` for owner-authorized deletion impact previews.
 They return full file/byte totals, capped file paths and group cross-token overlaps;
