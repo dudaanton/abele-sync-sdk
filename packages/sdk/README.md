@@ -271,7 +271,7 @@ protocol types referenced by the public SDK API, including adapter contracts
 and decoded connection tokens. No separate Abele packages are needed.
 
 The core, protocol and Node adapter code comes from
-[abele-sync source](https://github.com/dudaanton/abele-sync/tree/c8362ff).
+[abele-sync source](https://github.com/dudaanton/abele-sync/tree/76bc242).
 See NOTICE and the included upstream licences. The notes parser is built from
 this repository. Public YAML helper declarations require `@types/js-yaml`,
 which is included as a dependency.
