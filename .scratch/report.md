@@ -1,5 +1,99 @@
 # SDK 0.3.0 preparation
 
+## Latest refresh: clean 486568b snapshot
+
+Commit: `5e2aadc chore(sdk): vendor clean 486568b core snapshot`.
+Current core pin is **`486568bf10a6033052b7b56a478b8edf41dc95a9`**. This section
+supersedes all earlier pin/checksum entries below. The manager identifies upstream
+GitHub CI run `39854950736` as green on this exact commit; that remote run was not
+independently rerun here.
+
+### Source isolation and dependencies
+
+Exported the exact Git object with `git archive` into the fresh worktree-local
+`.scratch/core-486568b` directory. Installed the export's locked dependencies with
+`npm ci --ignore-scripts --no-audit --no-fund`, then built protocol/core/Node there
+with `tsc -b` (all compiled from scratch). Logs:
+`.scratch/486568b-install-core.log`, `.scratch/486568b-build-core.log`.
+No source, build output, index or commit was written in the other worker's core
+checkout. Its live files were read only for the requested report; vendor refresh
+packed exclusively from the clean export. Later retry-scheduler/waiting-files and
+extra pause-fencing work is deliberately excluded.
+
+Ran vendor refresh and `npm install`; only local core/Node tarball integrity hashes
+changed in the SDK lockfile. Protocol tarball is unchanged. No third-party
+dependencies/versions were added or changed. SDK remains 0.3.0 and upstream
+packages remain 0.5.0. Compat coreSha, NOTICE and packaged source URL match the pin.
+
+### Host migration since d256b13
+
+Read the entire commit interval and the corresponding report sections through
+486568b, distinguishing later live report entries. The migration guide now covers:
+
+- Directory policy refusal skips a subtree while other paths continue. Report
+  push rejection ops now also include mkdir (no file ID/SHA/size); incoming refusal
+  rows appear in optional pull/secondPull rejection lists. Forward synchronous
+  directoryRefusals/pathRefusal queries and asynchronous retryRefusedDirectories.
+  Explicit engine rescan durably rewinds before clearing refusal policy; routine
+  sync/restart does not retry. Typed host mkdir AbeleError policy refusal remains
+  distinct from operational/ownership/network errors.
+- Refused changes, including tombstones, survive restart in transactional
+  pull-refused metadata behind the ordered cursor barrier. Metadata-less hosts
+  conservatively pin instead of acknowledging an undurable refusal.
+- Push batches settle at 100 ops or 8 MiB submitted content, with indivisible
+  file/move-modify exceptions; existing streaming budgets and journal keys remain.
+- Feed metadata coalesces newest heads per file identity, preserving earliest
+  publication barriers and distinct identities sharing a path. Complete newest
+  equal-content snapshots can be adopted without download/write/republishing;
+  historical equality beneath a different newer version is not authorization.
+  Pending-write/staged installation proof requirements remain stricter.
+- Unknown file tombstones remain visible before creation settles; tombstones
+  resolve only their own identities. Known installed/incoming directory tombstones
+  perform directory cleanup/refusal retirement without entering file staging.
+- Crash-matrix durability-flush isolation, simulator fences and fixture/clock
+  changes add no public host API and do not weaken production durability.
+
+No SDK logic breakage was found by the requested checks, and no SDK test needed
+deletion or changed expectations. Upstream red-first evidence is in the core
+report; this refresh adds no product fix requiring a new red test.
+
+### SDK verification
+
+- `npm run types`: pass (`.scratch/486568b-types.log`).
+- `npm test`: **202 Vitest tests / 17 files and 9 Node tests pass**
+  (`.scratch/486568b-test.log`). Script uses `--maxWorkers=2`; same test-only uptime
+  EPERM preload and worktree-owned temp path as previous rounds. Production clock
+  code and test assertions are unchanged.
+- `npm run check:core-pin`: pass (`.scratch/486568b-pin.log`).
+- `npm run smoke`: packed install/import/declaration checks pass
+  (`.scratch/486568b-smoke.log`).
+- Changed-file Prettier, every quoted core source path in the migration guide,
+  and `git diff --check`: pass. ESLint remains unavailable; no whole lint or
+  upstream full suite was run.
+
+### Artifacts and blocked external copy
+
+New dev tarball:
+`/Volumes/Work/worktrees/abele-sync-sdk/sdk-reliability/.scratch/release/abele-sync-sdk-0.3.0-dev/abele-sync-sdk-0.3.0.tgz`
+
+**Current SHA256:** `262bfac22d1b4013f93f374f2f1dcdcb4253b5b504ecd5c506883775754f122b`.
+
+Preserved old d256b13 artifact beside it as
+`.scratch/release/abele-sync-sdk-0.3.0-dev/abele-sync-sdk-0.3.0.d256b13.tgz`, SHA256
+`07eecd2a505877560a6449f37238db80c1a2f96490af84f44cb531de88e9b5de`.
+
+Both requested external copy operations were attempted: preserving the external
+old artifact with the .d256b13.tgz suffix and replacing the main artifact under
+`/Volumes/Work/home/release/abele-sync-sdk-0.3.0-dev/`. Each failed with
+`Operation not permitted`; that path is outside writable roots and escalation is
+disabled. The external main artifact remains unchanged, verified by its old
+d256b13 SHA256 above. **Manager action:** copy the two prepared local files to that
+directory and verify their checksums. This is the sole incomplete brief step.
+
+No publication, release staging, push, tag, other-branch operation or live
+plugin/device/vault/server test. All owned runners exited. No product question;
+actual host integration and external artifact placement remain with the manager.
+
 ## Latest refresh: d256b13 / D-132
 
 Commit: `a7410e8 chore(sdk): vendor d256b13 filesystem safety fix`.
