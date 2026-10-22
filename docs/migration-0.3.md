@@ -1,7 +1,7 @@
 # Migrating a host from SDK 0.2.0 to 0.3.0
 
 SDK 0.3.0 bundles protocol/core/Node 0.5.0 from core commit
-`f6576ceda00638805a9377e7ab523efce773ef27`. The package version of core has
+`d256b130e46e57bd856cc2636dd96f5273b55c05`. The package version of core has
 not changed; use `compat.json`'s `coreSha` to identify this revision. Node 22+,
 ESM and protocol 2 remain required. Server targets remain 0.3.3 and 0.5.0;
 they were not retested against a live server for this refresh.
@@ -17,7 +17,15 @@ All quoted paths below are relative to the **core checkout at the pinned SHA**.
 The source of the requirements is `.scratch/report.md`: cancellation integration;
 D-013, D-016, D-018, D-021, D-031, D-032; review rounds 4–15; durable checkpoint
 rounds 19–22; scoped-store rounds 24–26. Later rounds supersede earlier quarantine
-retention and zero-cursor statements.
+retention and zero-cursor statements. Round 27 (D-132) adds no public port or API:
+it fixes Node's settling wrapper. All host wrappers must preserve the entire
+`removeDirectory(path, expectedIdentity)` tuple, every streaming/conditional safety
+argument (including callbacks and signals), and the underlying receiver. Expose
+optional capabilities only when the wrapped adapter implements them, including
+`listChildren`; never advertise an unsupported operation through a no-op wrapper.
+Source: `packages/node/src/growing.ts` and core report round 27. Without this
+forwarding, identity protection can be bypassed or capability fallback disabled;
+there is no safe fallback for a wrapper that silently drops safety arguments.
 
 ## Filesystem: required before enabling writes
 

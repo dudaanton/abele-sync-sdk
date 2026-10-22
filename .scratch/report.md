@@ -1,5 +1,59 @@
 # SDK 0.3.0 preparation
 
+## Latest refresh: d256b13 / D-132
+
+Commit: `a7410e8 chore(sdk): vendor d256b13 filesystem safety fix`.
+Current core pin is **`d256b130e46e57bd856cc2636dd96f5273b55c05`** from the
+authorized `work/pause-abort-v2` checkout. This section supersedes older core pins,
+tarball checksums and the pending-D-132 statement below.
+
+Ran `tsc -b packages/protocol packages/core packages/node --verbose` in the core
+checkout: success, all three packages already up to date. No source changes or
+commits there. Refreshed all three vendor packages and ran `npm install` after
+removing only their generated installed copies and corresponding local lock
+resolutions, so npm could recalculate integrity for same-version tarballs. Only
+the Node tarball changed; protocol and core are byte-identical. No third-party
+dependency or version changed. SDK stays 0.3.0 and upstream packages stay 0.5.0.
+Updated compat coreSha, NOTICE and the packaged source link.
+
+Checked the core log/diff and report after f6576ce. The only new commit is
+d256b13 (report round 27); D-123 and the earlier test-only fixes were already
+included at the previous pin. D-132's cause was SettlingFileSystem dropping
+removeDirectory's expectedIdentity, hiding listChildren, and advertising directory
+ports that the underlying disk did not implement. The new vendor binds these
+optional methods to the disk only when present, preserving safety arguments and
+receiver. No public host API changed. The migration guide records round 27 and
+explicitly requires complete argument forwarding and accurate optional capability
+presence in every host wrapper. This update required no SDK logic or test changes;
+upstream red-first coverage is recorded in core report round 27.
+
+Verification:
+
+- `npm run types`: pass (`.scratch/d132-types.log`).
+- `npm test`: **202 Vitest tests / 17 files and 9 Node tests pass**, script uses
+  `--maxWorkers=2` (`.scratch/d132-test.log`). Same test-only EPERM uptime preload
+  and worktree temp path as earlier runs; no production clock change.
+- `npm run check:core-pin`: pass (`.scratch/d132-pin.log`).
+- `npm run smoke`: packed install/import/declaration checks pass
+  (`.scratch/d132-smoke.log`).
+- Additional artifact check: installed and bundled SettlingFileSystem forward
+  removeDirectory's path/identity and receiver, expose listChildren, and leave
+  unsupported directory capabilities absent; packed growing.js equals bundled
+  growing.js (`.scratch/d132-artifact.log`). An initial source-text probe expected
+  optional-chaining syntax rather than the actual conditional binding; corrected
+  the probe to check runtime behavior. No product code changed for that probe.
+- Changed-file Prettier and `git diff --check`: pass. ESLint remains unavailable;
+  no whole lint/upstream suite/live server was run.
+
+Repacked dev tarball:
+`/Volumes/Work/worktrees/abele-sync-sdk/sdk-reliability/.scratch/release/abele-sync-sdk-0.3.0-dev/abele-sync-sdk-0.3.0.tgz`
+
+**Current SHA256:** `07eecd2a505877560a6449f37238db80c1a2f96490af84f44cb531de88e9b5de`.
+
+No remaining SDK breakage found or task question. Actual plugin integration,
+IndexedDB contracts, native watcher delivery and physical power loss remain host
+verification work. All owned runners exited. Nothing pushed, published or tagged.
+
 ## Review follow-up: D-131
 
 Commit: `e295969 fix(sdk): preserve cancellation through history operations`.
