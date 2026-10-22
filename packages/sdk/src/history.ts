@@ -11,7 +11,7 @@ import type {
   HeldDelete,
   DeleteDecision,
 } from "@abele/sync-core";
-import { transact } from "@abele/sync-core";
+import { SyncCancelled, transact } from "@abele/sync-core";
 
 export type HistoryErrorCode =
   | "closed"
@@ -68,6 +68,7 @@ export async function historyOperation<T>(job: () => Promise<T>): Promise<T> {
   try {
     return await job();
   } catch (error) {
+    if (error instanceof SyncCancelled) throw new SyncCancelled();
     if (error instanceof HistoryError) throw error;
     const code =
       error && typeof error === "object" && "code" in error

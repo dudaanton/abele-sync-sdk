@@ -209,7 +209,8 @@ retention and zero-cursor statements.
 ## Runtime and UI behavior
 
 - [ ] Treat `SyncCancelled` as intentional interruption **before** classifying its
-      inherited `offline` code. SDK `syncOnce()` preserves the class; ordinary failures
+      inherited `offline` code. SDK `syncOnce()` and history operations (including
+      `decideDeletes()` awaiting its automatic sync) preserve the class; ordinary failures
       remain sanitized `SyncError`. Pause is synchronous, aborts the active run and
       cancels queued syncs; stop awaits settlement and releases triggers. Core suppresses
       failure hooks/offline retry for cancellation. Show engine status so paused means

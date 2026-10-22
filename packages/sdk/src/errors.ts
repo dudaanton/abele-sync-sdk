@@ -1,5 +1,10 @@
 import { AbeleError, ErrorCodeSchema } from "@abele/sync-protocol";
-import { EngineError, HttpError, ExternalStateError } from "@abele/sync-core";
+import {
+  EngineError,
+  HttpError,
+  ExternalStateError,
+  SyncCancelled,
+} from "@abele/sync-core";
 
 export class RecoveryRequiredError extends Error {
   readonly code = "RECOVERY_REQUIRED";
@@ -13,6 +18,7 @@ export class RecoveryRequiredError extends Error {
 
 /** Rebuild errors from classifications only; text, causes and details are untrusted. */
 export function safeError(error: unknown): Error {
+  if (error instanceof SyncCancelled) return new SyncCancelled();
   if (
     error instanceof ExternalStateError &&
     error.reason === "recovery-required"
