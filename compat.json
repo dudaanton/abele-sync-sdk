@@ -2,5 +2,5 @@
   "sdk": "0.3.0",
   "core": "0.5.0",
   "servers": ["0.3.3", "0.5.0"],
-  "coreSha": "f6576ceda00638805a9377e7ab523efce773ef27"
+  "coreSha": "d256b130e46e57bd856cc2636dd96f5273b55c05"
 }
