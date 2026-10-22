@@ -1,7 +1,7 @@
 # Migrating a host from SDK 0.2.0 to 0.3.0
 
 SDK 0.3.0 bundles protocol/core/Node 0.5.0 from core commit
-`d256b130e46e57bd856cc2636dd96f5273b55c05`. The package version of core has
+`486568bf10a6033052b7b56a478b8edf41dc95a9`. The package version of core has
 not changed; use `compat.json`'s `coreSha` to identify this revision. Node 22+,
 ESM and protocol 2 remain required. Server targets remain 0.3.3 and 0.5.0;
 they were not retested against a live server for this refresh.
@@ -26,6 +26,99 @@ optional capabilities only when the wrapped adapter implements them, including
 Source: `packages/node/src/growing.ts` and core report round 27. Without this
 forwarding, identity protection can be bypassed or capability fallback disabled;
 there is no safe fallback for a wrapper that silently drops safety arguments.
+
+## Changes since the d256b13 refresh
+
+This refresh is built from a clean archive of `486568b`, the exact revision reported
+green in upstream CI run `39854950736`. It excludes later worker changes, including
+the retry-scheduler/waiting-files and additional pause-fencing work described after
+this commit in the live core report. Relevant report sections are D-134,
+D-136/D-137/D-138, A3, A2+A1, broad-run follow-ups, D-140/D-141 and directory
+tombstones after D-141. The following supersedes earlier descriptions of equality
+adoption and refusal/cursor behavior in this checklist.
+
+- [ ] Render directory rows in `report.push.rejected`: `op` now includes
+      `{ op: 'mkdir', path }` as well as file operations. Check the discriminator
+      before looking up file IDs, SHA or size. Render optional `pull.rejected` and
+      `secondPull?.rejected`, whose rows are `{ change, code, message }`. A refused
+      directory suppresses its whole subtree, while unrelated files continue;
+      refused changes emit no `onApplied`. Without UI changes, refusals remain
+      durable but can be invisible, and file-only result assumptions may fail.
+      Sources: `packages/core/src/pusher.ts`, `packages/core/src/puller.ts`,
+      `packages/core/src/cycle.ts`, report D-134.
+- [ ] Custom EngineClient wrappers must forward optional **synchronous**
+      `directoryRefusals(): readonly DirectoryRefusal[]` and
+      `pathRefusal(path): Refusal | undefined`, plus **asynchronous**
+      `retryRefusedDirectories(): Promise<void>`. Do not turn the synchronous
+      queries into promises. Call `SyncEngine.rescan()` for explicit retry after
+      the user fixes policy/quota/scope: it durably rewinds before clearing
+      refusals. Ordinary sync, restart and changed limits do not automatically
+      retry them. Low-level callers must perform the same durable rewind before
+      clearing. Clients with no directory refusal feature may omit these ports;
+      wrappers that hide them lose subtree suppression/reporting or explicit
+      retry. These are core-engine APIs; the curated SDK `SyncClient` does not
+      expose a rescan method. Sources: `packages/core/src/engineClient.ts`,
+      `packages/core/src/engine.ts`, `packages/core/src/v2Directories.ts`.
+- [ ] Intentional host policy refusal of an explicit `FileSystem.mkdir` must use
+      shared protocol `AbeleError` and the appropriate item code/message.
+      Supported item refusals are quota_exceeded, leaves_scope, invalid_path,
+      too_large, scripts_forbidden, path_taken, case_collision and per-item/host
+      forbidden. Keep raw EACCES/I/O, lost ownership, network/server/rate-limit
+      errors and temporary quota_waiting as failures. HTTP token forbidden remains
+      fatal. Do not infer mkdir policy from writeAtomic/conditionalFile errors.
+      No new filesystem port or safety argument was added. Without typed policy
+      errors, ordinary failures continue to abort instead of being skipped.
+      Sources: `packages/core/src/fs.ts`, `packages/core/src/v2Directories.ts`.
+- [ ] Preserve arbitrary scoped metadata, now including `pull-refused-progress`
+      and `pull-refused:<encoded file id>`. Refused feed events retain their full
+      ChangeItem and observed base atomically with cursor publication. The ordered
+      completion barrier prevents the cursor passing earlier unapplied accepted
+      work; retained refusals, including deletes, replay after restart/rescan.
+      Generation retirement includes this index even without enumeration. Without
+      durable metadata, refusals pin the cursor conservatively; do not discard
+      unfamiliar metadata or treat a refusal as applied. No additional StateStore
+      port is required. Sources: `packages/core/src/pullHolds.ts`,
+      `packages/core/src/pullRun.ts`, `packages/core/src/restoreGeneration.ts`,
+      report D-136/D-137/D-138.
+- [ ] Allow push progress to settle in batches of at most **100 operations or
+      8 MiB of submitted content**. An indivisible file or move+modify pair may
+      exceed the byte cap and travels alone; pairs are not split. Each batch's
+      ledger settles before the next starts and uncertain requests retain their
+      original keys. Streaming budgets still apply. No port or server protocol
+      change is required; update any UI/test assumption of 1000-operation batches.
+      Source: `packages/core/src/pushBatches.ts`, report A3.
+- [ ] Treat feed coalescing as **per-file identity**, never just per destination
+      path. Metadata is collected across pages before placement; inventory checks
+      its tail, and rename chains skip intermediate destinations. Each candidate
+      retains its earliest covered sequence for the cursor barrier. Different
+      identities sharing a path remain separate obligations until safe settlement;
+      tombstones resolve only their own identity and cannot clear another file's
+      hold. Unknown file tombstones remain visible even before local creation is
+      recorded. Known installed/incoming directory tombstones run directory cleanup
+      and refusal retirement but never enter file staging. No host port changed;
+      custom feed adapters must retain unknown file tombstones and preserve IDs.
+      Sources: `packages/core/src/pullHolds.ts`, `packages/core/src/pullRun.ts`,
+      `packages/core/src/v2Client.ts`, `packages/core/src/v2Directories.ts`,
+      report D-140/D-141 and `486568b`.
+- [ ] After collecting the complete newest metadata snapshot, core may adopt
+      stat-validated local bytes equal to its **newest** content as the base,
+      without download, write, quarantine or redundant publication. Historical
+      equal content beneath a different newer version remains protected/held;
+      different bytes remain held and destructive effects remain conditional.
+      Arbitrary staged versions and pending-write recovery retain their stricter
+      installation-proof rules. Do not assume every adoption means a content GET
+      or upload, and do not implement a separate historical-equality shortcut.
+      Interrupted metadata collection can repeat from its durable frontier; this
+      is not a general durable incoming-work queue. Sources:
+      `packages/core/src/pullPlace.ts`, `packages/core/src/pullRun.ts`,
+      report A2+A1 and f3f72b6.
+
+Crash-matrix, simulator publication, bounded replay/fixture, and heartbeat test
+changes in this interval add no host contract. They isolate durability flushes
+between replays, preserve synchronous refusal queries and keep the existing
+rollback/cursor/content guarantees; they do not relax production durability.
+Sources: `packages/node/tests/unit/groupCrashRecovery.test.ts`,
+`packages/core/tests/sim/durableState.ts`, report rounds 28–34 and Studio triage.
 
 ## Filesystem: required before enabling writes
 
@@ -237,8 +330,10 @@ there is no safe fallback for a wrapper that silently drops safety arguments.
       `packages/core/src/pullHolds.ts`, report rounds 19–24.
 - [ ] Do not infer downloaded bytes from `onApplied`/SDK `change`: verified local
       reuse/adoption also emits it. Offline edits, missing-source baselines and
-      same-stat changes remain protected; equal bytes alone do not authorize replacing
-      a tracked dirty base. Held changes pin progress without repeatedly walking clean
+      same-stat changes remain protected when they differ from the collected newest
+      content; equality with a historical version cannot authorize adoption beneath
+      a newer version. Newest-content adoption follows the rule above. Held changes
+      pin progress without repeatedly walking clean
       manifest entries. Generation changes retire/archive old checkpoints; expired
       destructive journals request neutral reconciliation instead of minting fresh
       destructive keys. Partial receipts preserve earlier successful ledgers and
