@@ -1,5 +1,67 @@
 # SDK 0.3.0 preparation
 
+## Review follow-up: D-131
+
+Commit: `e295969 fix(sdk): preserve cancellation through history operations`.
+Core remains pinned to `f6576ceda00638805a9377e7ab523efce773ef27`; no re-vendor
+was performed. D-132 (`SettlingFileSystem` dropping `expectedIdentity`) is assigned
+to the core developer and remains pending that fix and a later SDK refresh.
+
+Cause: `historyOperation` classified errors by code before distinguishing
+`SyncCancelled`, whose inherited code is `offline`. Thus `decideDeletes()` awaiting
+its automatic sync converted pause/stop into a false connectivity failure.
+It now checks the class first and throws a fresh `SyncCancelled`. The shared
+`safeError` sanitizer had the same subclass-erasure defect and now reconstructs
+cancellation before its general EngineError branch. Fresh instances retain no
+untrusted message, cause or extra details. Ordinary offline failures retain their
+existing classifications. The migration guide now covers history cancellation.
+
+Red-first: `.scratch/d131-red.log` records three failures: pause and stop during
+the real `decideDeletes` automatic sync (fake HTTP held until signal abort), plus
+shared sanitizer erasure. Existing syncOnce cases passed. After the fix the seven
+focused cases pass (`.scratch/d131-green.log`). Two additional regressions verify
+genuine offline classification and history-boundary sanitization. No tests or
+expectations were deleted, loosened or marked expected-failure.
+
+### Complete SDK error-wrapper audit
+
+| Wrapper / catch                                                                                | Cancellation outcome                                                                                                                                                                                               |
+| ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `history.ts`: `historyOperation`, all `createHistory` methods, and index `disconnect`/`revoke` | Fixed shared classification before code mapping. Covers history, restore, trash, restoreDeleted, heldDeletes, decideDeletes, deferred and applyDeferred. `accepted` handles server result objects, not exceptions. |
+| `errors.ts`: `safeError`                                                                       | Fixed subclass erasure; callers `open` and `ItemClient.request` inherit preservation.                                                                                                                              |
+| `index.ts`: `syncOnce`                                                                         | Already reconstructs `SyncCancelled` before SyncError mapping; existing regression retained for pause and stop.                                                                                                    |
+| `index.ts`: outer `openClient` cleanup; `node-replica.ts`: `openReplica`                       | Release/rethrow unchanged errors; node wrapper only converts NodeReplicaConfigError. Cancellation already passes through.                                                                                          |
+| `items.ts`: `request` / `supportsItems`                                                        | Request uses corrected safeError; capability fallback catches only typed HTTP 404, rethrows other errors.                                                                                                          |
+| `errors.ts`: `safeFetch`; `items.ts`: response body cleanup                                    | Fetch rejections propagate; only actual HTTP 5xx responses become offline HttpError. Body-cancel rejection catches are best-effort cleanup, not operation results.                                                 |
+| `index.ts`: parseKey, capabilities JSON, connection-response validation                        | Key/JSON/schema parsing catches are not engine sync wrappers; typed cancellation from connection fetching is rethrown by the connection catch and preserved by outer safeError.                                    |
+| `index.ts`: listener isolation and held-delete status notification lookup                      | Deliberately isolate observer errors/background notification failure; do not translate public operation rejections into connectivity failures.                                                                     |
+| `replica.ts`: list path validation                                                             | Catches only synchronous validation of inventory names. Adapter list/get/read rejections propagate.                                                                                                                |
+| `projection-cache.ts`: stat/read/JSON guards                                                   | Synchronous cache safety checks, no sync/cancellation source. Stat ENOENT is absence; other failures refuse recovery; disposable-cache parse failure returns false.                                                |
+| `historyNode.ts`                                                                               | No catch/error translation.                                                                                                                                                                                        |
+
+No further cancellation-erasing SDK sync wrapper was found.
+
+### Verification and refreshed artifact
+
+- `npm run types`: pass (`.scratch/d131-types.log`).
+- `npm test`: **202 Vitest tests, 17 files; 9 Node tests pass**
+  (`.scratch/d131-test-final.log`). Used `--maxWorkers=2` from the script and the
+  existing test-only EPERM uptime preload described below; production code unchanged.
+- `npm run check:core-pin`: pass (`.scratch/d131-pin.log`).
+- `npm run smoke`: isolated package install/import/types checks pass
+  (`.scratch/d131-smoke.log`).
+- Changed-file Prettier and `git diff --check`: pass. ESLint remains unavailable;
+  no whole lint or upstream suite was run. No dependency changes.
+
+Repacked the local dev artifact at
+`/Volumes/Work/worktrees/abele-sync-sdk/sdk-reliability/.scratch/release/abele-sync-sdk-0.3.0-dev/abele-sync-sdk-0.3.0.tgz`.
+**Current SHA256:** `2659d9839567eceacea0228f698624a4f744c14a4527fbb772121b7d879c49cc`.
+This supersedes the original preparation checksum below. The external release
+destination is still outside writable roots. No live server/plugin/device tests,
+push or publication; all owned runners exited. No new question for the manager.
+
+## Original preparation report
+
 Core SHA: `f6576ceda00638805a9377e7ab523efce773ef27`, from the authorized read-only
 `/Volumes/Work/worktrees/abele-sync/pause-abort-v2` checkout. Core/protocol/Node
 package versions remain 0.5.0. SDK and private notes workspace are 0.3.0.
