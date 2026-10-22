@@ -17,7 +17,12 @@ try {
 
 ## API and operations
 
-Requires Node.js 22+ and ESM. SDK 0.2.0 pairs with core, node and protocol
+Custom hosts must follow the [0.3.0 migration checklist](https://github.com/dudaanton/abele-sync-sdk/blob/main/docs/migration-0.3.md).
+`pause()` and `stop()` interrupt active syncs. An interrupted `syncOnce()` rejects
+with exported `SyncCancelled`; treat it as intentional cancellation before inspecting
+its inherited `offline` code. Cancellation emits no error event or offline retry.
+
+Requires Node.js 22+ and ESM. SDK 0.3.0 pairs with core, node and protocol
 **0.5.0**, with server targets **0.3.3** and **0.5.0** (`compat.json`). Protocol 2
 is required; its number alone does not guarantee compatibility with every server
 build. The matching core, Node adapters and protocol are bundled inside this package.
@@ -167,8 +172,10 @@ while the client is closed.
 settling files, held deletes and deferred changes may require another pass/action.
 Sync is bidirectional.
 
-`start()` enables watch, event-socket and fallback triggers. `pause()` suspends
-automatic triggers; manual sync still works unless authorization has halted.
+`start()` enables watch, event-socket and fallback triggers. `pause()` interrupts
+the active run and suspends automatic triggers; manual sync still works unless
+authorization has halted. Interrupted `syncOnce()` rejects with `SyncCancelled`,
+without an error event or offline retry.
 `resume()` clears pause/authorization halt and prompts sync. `stop()` awaits
 active work and releases automatic resources; await it before restarting.
 Pause and authorization halt survive stop/start. `close()` also releases owned
@@ -241,6 +248,7 @@ Branch on exported classes and codes, not message text.
 | InvalidKey                | INVALID_KEY                                                             |
 | IncompatibleServer        | INCOMPATIBLE_SERVER                                                     |
 | ReplicaConfigurationError | REPLICA_CONFIGURATION                                                   |
+| SyncCancelled             | offline (intentional interruption; check class first)                   |
 | SyncError                 | offline, unauthorized, other                                            |
 | HistoryError              | closed, unauthorized, offline, forbidden, not_found, unsupported, other |
 
@@ -271,7 +279,7 @@ protocol types referenced by the public SDK API, including adapter contracts
 and decoded connection tokens. No separate Abele packages are needed.
 
 The core, protocol and Node adapter code comes from
-[abele-sync source](https://github.com/dudaanton/abele-sync/tree/76bc242).
+[abele-sync source](https://github.com/dudaanton/abele-sync/tree/f6576ceda00638805a9377e7ab523efce773ef27).
 See NOTICE and the included upstream licences. The notes parser is built from
 this repository. Public YAML helper declarations require `@types/js-yaml`,
 which is included as a dependency.

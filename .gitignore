@@ -3,3 +3,5 @@ dist/
 *.tsbuildinfo
 .vitest-cache/
 .cache/
+.scratch/*
+!.scratch/report.md

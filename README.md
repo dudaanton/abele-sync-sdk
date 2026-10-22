@@ -14,6 +14,7 @@ and [reading notes example](examples/reading-notes/README.md).
 
 Run `npm ci`, `npm run types`, `npm test`, `npm run check:core-pin`, and `npm run smoke`.
 Compatibility is recorded in `compat.json`.
+Custom hosts upgrading to 0.3.0 must follow the [migration checklist](docs/migration-0.3.md).
 
 The npm configuration disables automatic peer installation to avoid an npm 10
 resolver crash with Vitest 5. Vite and Node types are pinned explicitly at the
@@ -76,7 +77,9 @@ folders and reject absolute paths, traversal, and backslash paths. Call
 `syncOnce()` first when current server data is needed.
 
 Use `client.start()` for continuous sync over the core event socket, local watcher
-and fallback timer. `pause()` suspends automatic triggers; `resume()` clears the
+and fallback timer. `pause()` interrupts the active run and suspends automatic triggers;
+an interrupted `syncOnce()` rejects with exported `SyncCancelled`, without an error
+event or offline retry. `resume()` clears the
 pause or authorization halt and syncs immediately. `syncOnce()` can run while
 paused, but a revoked connection requires `resume()` first. `stop()` awaits active
 work and releases watches, sockets and timers; await it before `start()` again.
