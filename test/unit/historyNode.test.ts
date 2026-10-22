@@ -13,6 +13,48 @@ import { join, resolve } from "node:path";
 import { forgetNodeReplica } from "../../packages/sdk/src/historyNode.js";
 import { inspectProjectionInventory, SqliteStateStore } from "@abele/sync-node";
 
+it.each(["conditional", "installations", "code-approvals"])(
+  "preserves outstanding %s evidence during disconnect",
+  (namespace) => {
+    mkdirSync(resolve(".cache"), { recursive: true });
+    const root = mkdtempSync(resolve(".cache/evidence-"));
+    const local = join(root, ".abele-sync");
+    const evidence = join(
+      local,
+      namespace,
+      namespace === "code-approvals" ? "review-group-a-123" : "pending",
+    );
+    mkdirSync(evidence, { recursive: true });
+    writeFileSync(join(evidence, "data"), "preserved bytes");
+    const state = { close: vi.fn() };
+    try {
+      expect(() => forgetNodeReplica({ dir: root, state } as never)).toThrow();
+      expect(state.close).not.toHaveBeenCalled();
+      expect(readFileSync(join(evidence, "data"), "utf8")).toBe(
+        "preserved bytes",
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
+
+it("disconnect accepts empty conditional recovery namespaces", () => {
+  mkdirSync(resolve(".cache"), { recursive: true });
+  const root = mkdtempSync(resolve(".cache/empty-evidence-"));
+  const local = join(root, ".abele-sync");
+  for (const name of ["conditional", "installations"])
+    mkdirSync(join(local, name), { recursive: true });
+  const state = { close: vi.fn() };
+  try {
+    forgetNodeReplica({ dir: root, state } as never);
+    expect(state.close).toHaveBeenCalledOnce();
+    expect(readdirSync(local)).toEqual([]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 it.each([false, true])(
   "retires the real Node projection cache after a pull (external=%s)",
   async (external) => {

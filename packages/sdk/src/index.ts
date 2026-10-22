@@ -7,6 +7,7 @@ import {
 } from "@abele/sync-protocol";
 import {
   SyncEngine,
+  SyncCancelled,
   AccessClient,
   V2EngineClient,
   selectiveDefaults,
@@ -27,7 +28,7 @@ export {
   type ScopeItem,
   type ScopeItemsResponse,
 } from "./items.js";
-export { AccessClient, V2EngineClient } from "@abele/sync-core";
+export { AccessClient, V2EngineClient, SyncCancelled } from "@abele/sync-core";
 export { AbeleError } from "@abele/sync-protocol";
 export { HttpError } from "@abele/sync-core";
 export type { ClientOptions } from "@abele/sync-core";
@@ -312,6 +313,9 @@ async function openClient(
         emit("change", change);
       },
     });
+    // Legacy core construction starts scope bookkeeping outside the scheduler.
+    // Drain it before exposing disconnect, whose scoped clear must not race it.
+    if (options.dir === undefined) await engine.recordScope();
     let closing: Promise<void> | undefined;
     let stopping: Promise<void> | undefined;
     let disconnecting: Promise<void> | undefined;
@@ -436,7 +440,8 @@ async function openClient(
         if (stopping) throw new Error("Sync client is stopping");
         try {
           return await engine.sync();
-        } catch {
+        } catch (error) {
+          if (error instanceof SyncCancelled) throw new SyncCancelled();
           throw new SyncError(
             revoked
               ? "unauthorized"

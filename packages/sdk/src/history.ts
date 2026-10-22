@@ -11,6 +11,7 @@ import type {
   HeldDelete,
   DeleteDecision,
 } from "@abele/sync-core";
+import { transact } from "@abele/sync-core";
 
 export type HistoryErrorCode =
   | "closed"
@@ -166,13 +167,13 @@ export function createHistory(options: {
 export async function forgetState(state: StateStore): Promise<void> {
   if (state.getMeta && (!state.metadataKeys || !state.setMeta))
     throw new HistoryError("unsupported");
-  await state.transaction(async () => {
+  await transact(state, async (tx) => {
     const paths: string[] = [];
-    for await (const entry of state.all()) paths.push(entry.path);
-    for (const path of paths) await state.delete(path);
-    await state.setCursor(0);
-    await state.setJournal(null);
-    for (const key of (await state.metadataKeys?.("")) ?? [])
-      await state.setMeta!(key, null);
+    for await (const entry of tx.all()) paths.push(entry.path);
+    for (const path of paths) await tx.delete(path);
+    await tx.setCursor(0);
+    await tx.setJournal(null);
+    for (const key of (await tx.metadataKeys?.("")) ?? [])
+      await tx.setMeta!(key, null);
   });
 }

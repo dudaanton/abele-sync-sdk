@@ -72,13 +72,29 @@ try {
     [
       "--input-type=module",
       "-e",
+      `
+const sdk = await import('@abele/sync-sdk');
+const core = await import('@abele/sync-sdk/core');
+if (sdk.SyncCancelled !== core.SyncCancelled || !(new sdk.SyncCancelled() instanceof core.EngineError))
+  throw Error('Cancellation class identity lost in packaged exports');
+for (const name of ['StateTransaction', 'transact'])
+  if (typeof core[name] !== 'function') throw Error('Missing scoped state export: ' + name);
+`,
+    ],
+    { cwd: scratch, stdio: "inherit" },
+  );
+  execFileSync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "-e",
       "const { parseKey, ItemClient, AccessClient, V2EngineClient } = await import('@abele/sync-sdk'); const core = await import('@abele/sync-sdk/core'); const { taskFromFrontmatter } = await import('@abele/sync-sdk/notes'); const { encodeAccessToken, V2ScopeItemSchema, V2SetAccessTokenSchema } = await import('@abele/sync-sdk/protocol'); const token = { v: 1, address: 'http://localhost:8787', key: 'a'.repeat(43), scope: { kind: 'folder', id: 'folder-id', path: '/' } }; if (parseKey(encodeAccessToken(token)).scope.id !== 'folder-id' || taskFromFrontmatter({ groups: ['test'] }).groups[0] !== 'test' || typeof ItemClient.fromToken !== 'function' || AccessClient !== core.AccessClient || V2EngineClient !== core.V2EngineClient || !V2ScopeItemSchema || !V2SetAccessTokenSchema) throw Error('API smoke failed'); const set = { v: 2, address: token.address, key: token.key, items: [{ id: 'item-id', kind: 'file', scope_id: 'file-id', path: 'Note.md' }] }; if (parseKey(encodeAccessToken(set)).v !== 2) throw Error('v2 payload smoke failed');",
     ],
     { cwd: scratch, stdio: "inherit" },
   );
   writeFileSync(
     resolve(scratch, "check.ts"),
-    "import { ItemClient, AccessClient, type ScopeItem, type ScopeItemsResponse, type V2AccessToken, type V2Scope, type V2Selector, type V2Connection, type ConnectOptions } from '@abele/sync-sdk';\nimport { V2EngineClient, type ClientOptions } from '@abele/sync-sdk/core';\nimport { V2SetAccessTokenSchema, V2ScopeItemSchema, V2TokenItemsResponseSchema, type V2TokenItemsResponse } from '@abele/sync-sdk/protocol';\nimport '@abele/sync-sdk/notes';\nconst options: Pick<ClientOptions, 'item'> = { item: 'item-id' };\nconst connect: Pick<ConnectOptions, 'item'> = options;\nconst ownerItems: (id: string) => Promise<V2TokenItemsResponse> = ItemClient.fromToken('', { fetch }).tokenItems;\nconst accessItems: (id: string) => Promise<V2TokenItemsResponse> = AccessClient.fromToken('', { fetch }).tokenItems;\nV2TokenItemsResponseSchema.parse({ items: [] });\n",
+    "import { ItemClient, AccessClient, SyncCancelled, type ScopeItem, type ScopeItemsResponse, type V2AccessToken, type V2Scope, type V2Selector, type V2Connection, type ConnectOptions } from '@abele/sync-sdk';\nimport { V2EngineClient, StateTransaction, transact, type ConditionalFileOperation, type FileVersion, type AtomicStage, type StreamingFileSystem, type StateStore, type EngineClient, type ClientOptions } from '@abele/sync-sdk/core';\nimport { V2SetAccessTokenSchema, V2ScopeItemSchema, V2TokenItemsResponseSchema, type V2TokenItemsResponse } from '@abele/sync-sdk/protocol';\nimport '@abele/sync-sdk/notes';\nconst options: Pick<ClientOptions, 'item'> = { item: 'item-id' };\nconst connect: Pick<ConnectOptions, 'item'> = options;\nconst ownerItems: (id: string) => Promise<V2TokenItemsResponse> = ItemClient.fromToken('', { fetch }).tokenItems;\nconst accessItems: (id: string) => Promise<V2TokenItemsResponse> = AccessClient.fromToken('', { fetch }).tokenItems;\nV2TokenItemsResponseSchema.parse({ items: [] });\n",
   );
   execFileSync(
     process.execPath,

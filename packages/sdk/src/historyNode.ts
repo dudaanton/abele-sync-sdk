@@ -55,10 +55,24 @@ export function forgetNodeReplica(replica: NodeReplica): void {
     "tmp",
     "code-approvals",
     "stages",
+    "conditional",
+    "installations",
   ]);
   for (const { folder, names } of contents)
     for (const name of names) {
       const stat = lstatSync(join(folder, name));
+      // Recovery evidence can own displaced user bytes. Only empty namespaces
+      // are disposable; retained approval reviews require an explicit decision.
+      if (stat.isDirectory() && !stat.isSymbolicLink()) {
+        const children = readdirSync(join(folder, name));
+        if (
+          ((name === "conditional" || name === "installations") &&
+            children.length > 0) ||
+          (name === "code-approvals" &&
+            children.some((child) => child.startsWith("review-")))
+        )
+          throw new HistoryError("unsupported");
+      }
       if (
         stat.isSymbolicLink() ||
         !(

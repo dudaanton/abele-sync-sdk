@@ -8,6 +8,7 @@ import {
   symlink,
   lstat,
   readlink,
+  readdir,
 } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { resolve, join } from "node:path";
@@ -177,7 +178,7 @@ it("supports lifecycle events and restart without leaking timers", async () => {
 });
 
 it.each([undefined, "00000000-0000-4000-8000-000000000000"])(
-  "preserves unowned recovery evidence and exposes an actionable safe error (ledger=%s)",
+  "retains unowned recovery evidence for review without blocking reopen (ledger=%s)",
   async (ledger) => {
     await mkdir(".cache", { recursive: true });
     const root = await mkdtemp(resolve(".cache/recovery-"));
@@ -202,21 +203,33 @@ it.each([undefined, "00000000-0000-4000-8000-000000000000"])(
       });
       await writeFile(join(folder, "journal.json"), journal);
       await writeFile(join(dir, "Example.md"), "keep user bytes");
+      let retained: string | undefined;
       for (let attempt = 0; attempt < 2; attempt++) {
-        const error = await open({
+        const reopened = await open({
           key,
           dir,
           stateDir,
           transport: transport(),
-        }).catch((e) => e);
-        expect(error).toBeInstanceOf(RecoveryRequiredError);
-        expect(error.code).toBe("RECOVERY_REQUIRED");
-        expect(error.message).toContain("Preserve");
-        expect(error.message).not.toContain(root);
-        expect(error.cause).toBeUndefined();
-        expect(await readFile(join(folder, "journal.json"), "utf8")).toBe(
-          journal,
-        );
+        });
+        await reopened.close();
+        const reviews = (
+          await readdir(join(dir, ".abele-sync", "code-approvals"))
+        ).filter((name) => name.startsWith("review-group-example-"));
+        expect(reviews).toHaveLength(1);
+        if (retained) expect(reviews[0]).toBe(retained);
+        retained = reviews[0];
+        expect(
+          await readFile(
+            join(
+              dir,
+              ".abele-sync",
+              "code-approvals",
+              retained!,
+              "journal.json",
+            ),
+            "utf8",
+          ),
+        ).toBe(journal);
         expect(await readFile(join(dir, "Example.md"), "utf8")).toBe(
           "keep user bytes",
         );
